@@ -40,7 +40,13 @@ export const CoreAuditPage: React.FC = () => {
     }
   }, [isError, error, navigate]);
 
-  if (isLoading) return <LoadingSkeleton rows={4} />;
+  if (isLoading)
+    return (
+      <LoadingSkeleton
+        phase="Core Architectural Audit"
+        description="Extracting Java AST, detecting deprecated API patterns, and building static component topology."
+      />
+    );
 
   const blueprintSteps = projectDetails?.blueprint?.steps || [];
   const blueprintApprovedOrUnlocked =

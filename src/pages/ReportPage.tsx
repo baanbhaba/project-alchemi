@@ -43,7 +43,13 @@ export const ReportPage: React.FC = () => {
     }
   }, [isError, error, navigate]);
 
-  if (isLoading) return <LoadingSkeleton rows={4} />;
+  if (isLoading)
+    return (
+      <LoadingSkeleton
+        phase="Migration Report & Diff Generation"
+        description="Assembling synthesized Rust crate artifacts, Cargo.toml package manifests, and dynamic rollback plans."
+      />
+    );
 
   const blueprintSteps = projectDetails?.blueprint?.steps || [];
   const allApproved = blueprintSteps.length > 0 && blueprintSteps.every((s: any) => s.status === "approved");

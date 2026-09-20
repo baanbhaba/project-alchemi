@@ -114,7 +114,13 @@ export const BlueprintPage: React.FC = () => {
     });
   }, [blueprint]);
 
-  if (isLoading) return <LoadingSkeleton rows={5} />;
+  if (isLoading)
+    return (
+      <LoadingSkeleton
+        phase="Migration Blueprint Synthesis"
+        description="Synthesizing multi-step migration blueprint, dependency orderings, and code transformation targets."
+      />
+    );
   if (isError) {
     return (
       <ErrorState
@@ -143,15 +149,31 @@ export const BlueprintPage: React.FC = () => {
   };
 
   const handleMarkAllAsViewed = () => {
-    markAllStepsViewed(
-      id || "",
-      sortedSteps.map((s) => s.id)
-    );
+    const allStepIds = sortedSteps.map((s) => s.id);
+    markAllStepsViewed(id || "", allStepIds);
   };
 
   return (
     <div className="space-y-6">
-      {/* Header */}
+      {/* Regeneration active loading banner */}
+      {regenerateMutation.isPending && (
+        <div className="p-4 rounded-lg bg-zinc-900 border border-amber-500/40 space-y-3 shadow-lg">
+          <div className="flex items-center justify-between text-xs font-mono">
+            <div className="flex items-center space-x-2 text-amber-400 font-bold">
+              <Sparkles className="w-4 h-4 animate-spin text-amber-400" />
+              <span>Generating Fresh AI Blueprint with NVIDIA NIM...</span>
+            </div>
+            <span className="text-[11px] text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/30">
+              SYNTHESIZING
+            </span>
+          </div>
+          <div className="h-1.5 w-full bg-zinc-950 rounded-full overflow-hidden border border-zinc-800">
+            <div className="h-full bg-gradient-to-r from-amber-500 via-amber-300 to-emerald-400 animate-[pulse_1s_ease-in-out_infinite]" />
+          </div>
+        </div>
+      )}
+
+      {/* Header Bar */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-zinc-200 dark:border-zinc-800">
         <div>
           <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-100 flex items-center space-x-2 font-mono">
@@ -162,7 +184,7 @@ export const BlueprintPage: React.FC = () => {
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 font-mono">
+        <div className="flex flex-wrap items-center gap-2">
           {isDevMode && (
             <button
               onClick={() => regenerateMutation.mutate()}
@@ -173,7 +195,7 @@ export const BlueprintPage: React.FC = () => {
               <span>
                 {regenerateMutation.isPending
                   ? "Generating Live AI Steps..."
-                  : "Generate AI Blueprint (NVIDIA 70B)"}
+                  : "Generate AI Blueprint (NVIDIA NIM)"}
               </span>
             </button>
           )}

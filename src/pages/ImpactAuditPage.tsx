@@ -37,7 +37,13 @@ export const ImpactAuditPage: React.FC = () => {
     }
   }, [isError, error, navigate]);
 
-  if (isLoading) return <LoadingSkeleton rows={4} />;
+  if (isLoading)
+    return (
+      <LoadingSkeleton
+        phase="Impact & Blast Radius Analysis"
+        description="Assessing database migrations, breaking changes, API consumers, and operational risk factors."
+      />
+    );
 
   const coreDone = !!projectDetails?.core_audit || sessionStorage.getItem("ema_unlocked_impact-audit") === "true";
   if (projectDetails && !coreDone) {

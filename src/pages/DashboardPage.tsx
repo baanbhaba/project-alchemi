@@ -203,7 +203,13 @@ export const DashboardPage: React.FC = () => {
         </div>
       </div>
 
-      {isLoading && <LoadingSkeleton rows={3} />}
+      {isLoading && (
+        <LoadingSkeleton
+          rows={3}
+          phase="Project Ingestion & Telemetry"
+          description="Scanning Neon PostgreSQL repository records, AST uploads, and transformation readiness."
+        />
+      )}
 
       {isError && (
         <ErrorState

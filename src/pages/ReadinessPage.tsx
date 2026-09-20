@@ -89,7 +89,13 @@ export const ReadinessPage: React.FC = () => {
     }
   }, [isErrorScore, isErrorConsensus, errorScore, errorConsensus, navigate]);
 
-  if (isLoadingScore || isLoadingConsensus) return <LoadingSkeleton rows={4} />;
+  if (isLoadingScore || isLoadingConsensus)
+    return (
+      <LoadingSkeleton
+        phase="Readiness & Multi-Agent Consensus"
+        description="Aggregating dimension scores, weightings, and gate validation criteria across Core and Impact agents."
+      />
+    );
 
   const prevDone = (!!projectDetails?.core_audit && !!projectDetails?.impact_audit) || sessionStorage.getItem("ema_unlocked_readiness") === "true";
   if (projectDetails && !prevDone) {
