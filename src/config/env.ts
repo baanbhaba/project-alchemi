@@ -7,6 +7,6 @@ const envSchema = z.object({
 });
 
 export const env = envSchema.parse({
-  VITE_API_BASE_URL: import.meta.env.VITE_API_BASE_URL,
-  VITE_USE_MOCKS: import.meta.env.VITE_USE_MOCKS,
+  VITE_API_BASE_URL: (typeof import.meta !== "undefined" && (import.meta as any).env?.VITE_API_BASE_URL) || process.env.VITE_API_BASE_URL || "/api/v1",
+  VITE_USE_MOCKS: (typeof import.meta !== "undefined" && (import.meta as any).env?.VITE_USE_MOCKS) || process.env.VITE_USE_MOCKS || "false",
 });

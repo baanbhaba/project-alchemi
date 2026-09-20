@@ -25,9 +25,9 @@ interface LogEntry {
   correlationId?: string;
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-const isDev = import.meta.env.DEV;
+const isDev = typeof import.meta !== "undefined" && (import.meta as any).env?.DEV !== undefined
+  ? Boolean((import.meta as any).env.DEV)
+  : process.env.NODE_ENV !== "production";
 
 let _correlationId: string | null = null;
 
@@ -88,12 +88,12 @@ function consoleTransport(entry: LogEntry): void {
   }
 }
 
-// ─── Remote transport (production only) ─────────────────────────────────────
-
-const REMOTE_ENDPOINT = import.meta.env.VITE_LOG_ENDPOINT as string | undefined;
+const REMOTE_ENDPOINT = typeof import.meta !== "undefined" && (import.meta as any).env?.VITE_LOG_ENDPOINT
+  ? ((import.meta as any).env.VITE_LOG_ENDPOINT as string)
+  : (process.env.VITE_LOG_ENDPOINT as string | undefined);
 
 function remoteTransport(entry: LogEntry): void {
-  if (!REMOTE_ENDPOINT) return;
+  if (!REMOTE_ENDPOINT || typeof navigator === "undefined" || !navigator.sendBeacon) return;
   // Fire-and-forget — never block the call-site
   navigator.sendBeacon(
     REMOTE_ENDPOINT,

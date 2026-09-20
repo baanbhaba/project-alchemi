@@ -16,7 +16,7 @@ async function callAiProxy(messages: { role: string; content: string }[], max_to
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: "meta/llama-3.1-70b-instruct",
+      model: "meta/llama-3.2-11b-vision-instruct",
       messages,
       temperature: 0.1,
       max_tokens,

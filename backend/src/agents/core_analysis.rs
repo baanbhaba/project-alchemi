@@ -41,7 +41,7 @@ impl CoreAnalysisAgent {
         Self {
             client: Client::new(),
             api_key,
-            model: model.unwrap_or_else(|| "meta/llama-3.1-70b-instruct".to_string()),
+            model: model.unwrap_or_else(|| "meta/llama-3.2-11b-vision-instruct".to_string()),
         }
     }
 

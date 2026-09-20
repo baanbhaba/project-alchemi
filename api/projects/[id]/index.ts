@@ -262,7 +262,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           status: "completed",
           rawJavaCode,
           transformedRustCode: targetRustCode,
-          modelUsed: "meta/llama-3.1-70b-instruct",
+          modelUsed: "meta/llama-3.2-11b-vision-instruct",
         },
       });
 

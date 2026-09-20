@@ -34,7 +34,7 @@ describe("NVIDIA Llama 3.1 70B Custom Blueprint Generation Verification", () => 
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "meta/llama-3.1-70b-instruct",
+        model: "meta/llama-3.2-11b-vision-instruct",
         messages: [
           {
             role: "system",

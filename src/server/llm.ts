@@ -1,6 +1,6 @@
-const DEFAULT_MODEL = "meta/llama-3.1-70b-instruct";
+const DEFAULT_MODEL = "meta/llama-3.2-11b-vision-instruct";
 
-const FALLBACK_NVIDIA_KEY = "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";
+const FALLBACK_NVIDIA_KEY = "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";
 const FALLBACK_AIML_KEY = "a89e74ba7f517327fd7481a118053119";
 
 export async function completeJson<T>(
