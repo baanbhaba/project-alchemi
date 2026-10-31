@@ -7,19 +7,40 @@ import { getProjectSourceCode } from "./project";
 
 let localBlueprintsStore: Record<string, Blueprint> = {};
 
+const saveLocalBlueprint = (projectId: string, bp: Blueprint) => {
+  localBlueprintsStore[projectId] = bp;
+  try {
+    sessionStorage.setItem(`ema_blueprint_${projectId}`, JSON.stringify(bp));
+  } catch {}
+};
+
+export const getLocalBlueprint = (projectId: string): Blueprint | null => {
+  if (localBlueprintsStore[projectId]) return localBlueprintsStore[projectId];
+  try {
+    const raw = sessionStorage.getItem(`ema_blueprint_${projectId}`) || localStorage.getItem(`ema_blueprint_${projectId}`);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      localBlueprintsStore[projectId] = parsed;
+      return parsed;
+    }
+  } catch {}
+  return null;
+};
+
 export const getBlueprint = async (projectId: string): Promise<Blueprint> => {
+  const cached = getLocalBlueprint(projectId);
   try {
     const data = await fetchApi<Blueprint>(`/projects/${projectId}/blueprint`);
     if (data && data.steps && Array.isArray(data.steps)) {
-      localBlueprintsStore[projectId] = data;
+      saveLocalBlueprint(projectId, data);
       return BlueprintSchema.parse(data);
     }
   } catch {
     console.warn(`[OFFLINE] Backend GET /projects/${projectId}/blueprint unavailable — building local blueprint.`);
   }
 
-  if (localBlueprintsStore[projectId]) {
-    return BlueprintSchema.parse(localBlueprintsStore[projectId]);
+  if (cached) {
+    return BlueprintSchema.parse(cached);
   }
 
   try {

@@ -5,13 +5,21 @@ import { z } from "zod";
 export const DetectedStackItemSchema = z.object({
   technology: z.string(),
   version: z.string(),
-  status: z.enum(["current", "deprecated", "eol"]),
+  status: z.union([
+    z.enum(["current", "deprecated", "eol"]),
+    z.string().transform((v) => {
+      const lower = v.toLowerCase();
+      if (lower.includes("eol")) return "eol" as const;
+      if (lower.includes("deprecat")) return "deprecated" as const;
+      return "current" as const;
+    }),
+  ]),
   evidence: z.string().optional(),
 });
 
 export const DeprecatedUsageSchema = z.object({
   file: z.string(),
-  line: z.number(),
+  line: z.union([z.number(), z.string().transform((v) => parseInt(v, 10) || 1)]),
   pattern: z.string(),
   severity: z.enum(["low", "medium", "high"]).optional(),
   recommended_replacement: z.string(),
@@ -35,15 +43,15 @@ export const DiagramSchema = z.object({
 });
 
 export const ConcurrencyModelSchema = z.object({
-  uses_threads: z.boolean(),
-  uses_executor_service: z.boolean(),
-  shared_mutable_state: z.array(z.string()),
-  notes: z.string(),
+  uses_threads: z.union([z.boolean(), z.string().transform((v) => v === "true" || v === "1")]),
+  uses_executor_service: z.union([z.boolean(), z.string().transform((v) => v === "true" || v === "1")]),
+  shared_mutable_state: z.array(z.string()).default([]),
+  notes: z.string().default(""),
 });
 
 export const MigrationComplexitySchema = z.object({
-  score: z.number().min(1).max(10),
-  drivers: z.array(z.string()),
+  score: z.union([z.number(), z.string().transform((v) => Number(v) || 5)]),
+  drivers: z.array(z.string()).default([]),
 });
 
 export const CoreAuditSchema = z.object({

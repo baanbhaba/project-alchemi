@@ -465,6 +465,26 @@ ${configImpactNotes || "- Restore application.properties / application.yml confi
           rust_code: generateRustCodeFromJava(rawJava, "step-1"),
         } as any;
       }
+      let finalBlueprint = project.blueprint;
+      if (finalBlueprint && finalBlueprint.steps) {
+        finalBlueprint = {
+          id: finalBlueprint.id,
+          project_id: project.id,
+          version: finalBlueprint.version,
+          steps: finalBlueprint.steps.map((s: any) => ({
+            id: s.id,
+            step_number: s.stepNumber,
+            file_or_module: s.fileOrModule || s.file_or_module,
+            what_changes: s.whatChanges || s.what_changes,
+            why: s.why,
+            target_pattern: s.targetPattern || s.target_pattern,
+            risk_level: s.riskLevel || s.risk_level,
+            depends_on: s.dependsOn || s.depends_on || [],
+            status: s.status,
+            rejection_reason: s.rejectionReason ?? s.rejection_reason ?? undefined,
+          })),
+        } as any;
+      }
 
       return res.status(200).json({
         ...mapped,
@@ -472,7 +492,7 @@ ${configImpactNotes || "- Restore application.properties / application.yml confi
         core_audit: finalCoreAudit,
         impact_audit: project.impactAudit,
         readiness_assessment: project.readinessAssessment,
-        blueprint: project.blueprint,
+        blueprint: finalBlueprint,
         transformations: project.transformations,
         migration_report: project.migrationReport,
       });

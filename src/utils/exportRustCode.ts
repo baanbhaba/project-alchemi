@@ -109,12 +109,14 @@ export async function downloadCombinedRustProject(
   projectName: string,
   blueprintSteps: BlueprintStep[]
 ) {
-  const rustFiles = blueprintSteps
-    .filter((s) => s.status === "approved" && s.target_pattern)
+  const rustFiles = (blueprintSteps as any[])
+    .filter((s) => s.status === "approved" && (s.target_pattern || s.targetPattern))
     .map((s) => {
-      const classNameMatch = s.target_pattern?.match(/pub struct ([A-Za-z0-9_]+)/);
-      const moduleName = classNameMatch ? classNameMatch[1].toLowerCase() : s.file_or_module.replace(".java", "").toLowerCase();
-      return { moduleName, code: sanitizeRustCode(s.target_pattern || "") };
+      const pattern = (s.target_pattern || s.targetPattern || "") as string;
+      const fileOrMod = (s.file_or_module || s.fileOrModule || "module") as string;
+      const classNameMatch = pattern.match(/pub struct ([A-Za-z0-9_]+)/);
+      const moduleName = classNameMatch ? classNameMatch[1].toLowerCase() : fileOrMod.replace(".java", "").toLowerCase();
+      return { moduleName, code: sanitizeRustCode(pattern) };
     });
 
   const extractedCodeChunks: string[] = rustFiles.map(f => f.code);

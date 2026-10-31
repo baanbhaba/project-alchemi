@@ -16,7 +16,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-  const redirectUri = `${process.env.VITE_API_BASE_URL || "http://localhost:3000"}/api/auth/oauth/callback`;
+  const proto = (req.headers["x-forwarded-proto"] as string) || "http";
+  const host = (req.headers["x-forwarded-host"] as string) || req.headers.host || "localhost:3000";
+  const appBaseUrl =
+    process.env.APP_URL ||
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null) ||
+    (process.env.VITE_API_BASE_URL?.startsWith("http") ? process.env.VITE_API_BASE_URL : null) ||
+    `${proto}://${host}`;
+  const redirectUri = `${appBaseUrl}/api/auth/oauth/callback`;
 
   if (!clientId || !clientSecret) {
     return res.status(500).json({ error: "Google OAuth not configured" });

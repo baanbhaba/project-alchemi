@@ -8,7 +8,7 @@ interface ShimmerButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
 
 export const ShimmerButton: React.FC<ShimmerButtonProps> = ({
   children,
-  shimmerColor = "#ffffff",
+  shimmerColor: _shimmerColor = "#ffffff",
   className = "",
   disabled,
   ...props

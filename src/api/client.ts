@@ -40,9 +40,16 @@ export async function fetchApi<T>(
     ? endpoint
     : `${BASE_URL.replace(/\/$/, "")}/${endpoint.replace(/^\//, "")}`;
 
-  const authState = (window as any).__EMA_AUTH_STATE__ || {};
-  const token = sessionStorage.getItem("ema_token") || localStorage.getItem("ema_token") || authState.token;
-  const username = sessionStorage.getItem("ema_username") || localStorage.getItem("ema_username") || authState.username;
+  const hasWindow = typeof window !== "undefined";
+  const authState = (hasWindow ? (window as any).__EMA_AUTH_STATE__ : undefined) || {};
+  const token =
+    (typeof sessionStorage !== "undefined" ? sessionStorage.getItem("ema_token") : null) ||
+    (typeof localStorage !== "undefined" ? localStorage.getItem("ema_token") : null) ||
+    authState.token;
+  const username =
+    (typeof sessionStorage !== "undefined" ? sessionStorage.getItem("ema_username") : null) ||
+    (typeof localStorage !== "undefined" ? localStorage.getItem("ema_username") : null) ||
+    authState.username;
 
   const headers = {
     "Content-Type": "application/json",

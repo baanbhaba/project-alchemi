@@ -97,15 +97,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // Load from DB if no code provided
     if (project_id && !javaCode) {
-      const project = await prisma.project.findUnique({
-        where: { id: project_id },
-        include: { uploadedSources: true },
-      });
-      if (!project) {
-        return res.status(404).json({ error: `Project '${project_id}' not found` });
+      try {
+        const project = await prisma.project.findUnique({
+          where: { id: project_id },
+          include: { uploadedSources: true },
+        });
+        if (!project) {
+          return res.status(404).json({ error: `Project '${project_id}' not found` });
+        }
+        fileName = project.uploadedSources[0]?.fileName || `${project.name}.java`;
+        javaCode = project.uploadedSources[0]?.rawCode || "";
+      } catch (dbErr) {
+        console.warn("Could not query project from database:", dbErr);
       }
-      fileName = project.uploadedSources[0]?.fileName || `${project.name}.java`;
-      javaCode = project.uploadedSources[0]?.rawCode || "";
     }
 
     if (!javaCode && typeof ingestion_manifest === "string") {
@@ -121,8 +125,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // ── Tier 1: AI analysis ────────────────────────────────────────────────
     let audit: any = null;
 
-    audit = await completeJson(CORE_SYSTEM_PROMPT, javaCode, { maxTokens: 1800 });
-    if (audit && (!audit.architecture_summary || !Array.isArray(audit.detected_stack))) {
+    try {
+      audit = await completeJson(CORE_SYSTEM_PROMPT, javaCode, { maxTokens: 1800 });
+      if (audit && (!audit.architecture_summary || !Array.isArray(audit.detected_stack))) {
+        audit = null;
+      }
+    } catch (llmErr) {
+      console.warn("AI analysis failed in /analyze/core, falling back to static analysis:", llmErr);
       audit = null;
     }
 
@@ -154,27 +163,31 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // ── Persist to DB if project_id provided ──────────────────────────────
     if (project_id) {
-      await prisma.coreAudit.upsert({
-        where: { projectId: project_id },
-        update: {
-          architectureSummary: audit.architecture_summary,
-          detectedStack: audit.detected_stack,
-          deprecatedUsages: audit.deprecated_usages,
-          dependencyGraph: audit.dependency_graph,
-          diagrams: audit.diagrams,
-          confidence: audit.confidence,
-        },
-        create: {
-          projectId: project_id,
-          architectureSummary: audit.architecture_summary,
-          detectedStack: audit.detected_stack,
-          deprecatedUsages: audit.deprecated_usages,
-          dependencyGraph: audit.dependency_graph,
-          diagrams: audit.diagrams,
-          confidence: audit.confidence,
-        },
-      });
-      await refreshProjectReadiness(project_id);
+      try {
+        await prisma.coreAudit.upsert({
+          where: { projectId: project_id },
+          update: {
+            architectureSummary: audit.architecture_summary,
+            detectedStack: audit.detected_stack,
+            deprecatedUsages: audit.deprecated_usages,
+            dependencyGraph: audit.dependency_graph,
+            diagrams: audit.diagrams,
+            confidence: audit.confidence,
+          },
+          create: {
+            projectId: project_id,
+            architectureSummary: audit.architecture_summary,
+            detectedStack: audit.detected_stack,
+            deprecatedUsages: audit.deprecated_usages,
+            dependencyGraph: audit.dependency_graph,
+            diagrams: audit.diagrams,
+            confidence: audit.confidence,
+          },
+        });
+        await refreshProjectReadiness(project_id);
+      } catch (dbErr) {
+        console.warn("Failed to persist core audit to DB (offline/db unreachable):", dbErr);
+      }
     }
 
     if (audit) {
