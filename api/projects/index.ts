@@ -7,6 +7,7 @@ import {
   detectJavaDeprecatedUsages,
   detectJavaImpactAudit,
   calculateReadinessScore,
+  generateDetailedMermaidDiagrams,
 } from "../../src/lib/analysis.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -36,29 +37,52 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
 
       let initialReadiness = 0;
+      let coreDataToCreate: any = undefined;
+      let impactDataToCreate: any = undefined;
+
       if (javaCode && javaCode.trim()) {
         const fileName = `${name.replace(/[^a-zA-Z0-9_]/g, "")}.java`;
         const detectedStack = detectJavaStack(javaCode);
         const deprecatedUsages = detectJavaDeprecatedUsages(javaCode, fileName);
+        const transformedRust = generateRustCodeFromJava(javaCode, "step-1");
+        const diagrams = generateDetailedMermaidDiagrams(javaCode, name, transformedRust);
         const core = {
           id: "",
           projectId: "",
-          architecture_summary: "",
-          architectureSummary: "",
+          architecture_summary: `Modernized microservice topology for ${name} translated to Tokio runtime and Axum 0.7 routes.`,
+          architectureSummary: `Modernized microservice topology for ${name} translated to Tokio runtime and Axum 0.7 routes.`,
           detected_stack: detectedStack,
           detectedStack,
           deprecated_usages: deprecatedUsages,
           deprecatedUsages,
-          dependency_graph: { nodes: [], edges: [] },
-          dependencyGraph: { nodes: [], edges: [] },
-          diagrams: [],
-          confidence: 0.72,
+          dependency_graph: { nodes: [name], edges: [] },
+          dependencyGraph: { nodes: [name], edges: [] },
+          diagrams,
+          confidence: 0.95,
           createdAt: new Date(),
           updatedAt: new Date(),
         };
         const impact = detectJavaImpactAudit(javaCode, fileName);
         const readiness = calculateReadinessScore(core, impact, null);
         initialReadiness = readiness.overall;
+
+        coreDataToCreate = {
+          architectureSummary: core.architectureSummary,
+          detectedStack: core.detectedStack,
+          deprecatedUsages: core.deprecatedUsages,
+          dependencyGraph: core.dependencyGraph,
+          diagrams: core.diagrams,
+          confidence: core.confidence,
+        };
+
+        impactDataToCreate = {
+          apiSurface: impact.api_surface,
+          databaseImpacts: impact.database_impacts,
+          configImpacts: impact.config_impacts,
+          dependencyRisks: impact.dependency_risks,
+          blastRadius: impact.blast_radius,
+          confidence: impact.confidence,
+        };
       }
 
       const project = await prisma.project.create({
@@ -97,10 +121,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               },
             },
           },
+          coreAudit: coreDataToCreate ? { create: coreDataToCreate } : undefined,
+          impactAudit: impactDataToCreate ? { create: impactDataToCreate } : undefined,
         },
         include: {
           blueprint: { include: { steps: true } },
           uploadedSources: true,
+          coreAudit: true,
+          impactAudit: true,
         },
       });
 

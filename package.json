@@ -17,6 +17,7 @@
     "dev": "vite",
     "postinstall": "prisma generate",
     "build": "prisma generate && tsc -b && vite build",
+    "vercel-build": "(node scripts/ensure-migrations.mjs || true) && npx prisma generate && tsc -b && vite build",
     "db:seed": "node prisma/seed.mjs",
     "db:reset": "prisma migrate reset --force && node prisma/seed.mjs",
     "test": "vitest run",

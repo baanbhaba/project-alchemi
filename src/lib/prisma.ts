@@ -12,12 +12,14 @@ function getPrismaClient(): PrismaClient {
   }
 
   if (!_prismaClient) {
+    const isSsl = dbUrl.includes("sslmode=require") || dbUrl.includes("neon.tech");
     _pool = new Pool({
       connectionString: dbUrl,
+      ssl: isSsl ? { rejectUnauthorized: false } : undefined,
       max: 1, // 1 connection per serverless function instance
       min: 0, // release immediately when idle
       idleTimeoutMillis: 10_000,
-      connectionTimeoutMillis: 5_000,
+      connectionTimeoutMillis: 10_000,
     });
     const adapter = new PrismaPg(_pool);
     _prismaClient = new PrismaClient({

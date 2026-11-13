@@ -1,6 +1,6 @@
 {
   "name": "project-alchemi",
-  "buildCommand": "node scripts/ensure-migrations.mjs && prisma generate && tsc -b && vite build && prisma db seed",
+  "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "functions": {
     "api/**/*.ts": {

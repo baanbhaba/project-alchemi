@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { prisma } from "../../src/lib/prisma.js";
-import { detectJavaImpactAudit } from "../../src/lib/analysis.js";
+import { detectJavaImpactAudit, generateDetailedMermaidDiagrams } from "../../src/lib/analysis.js";
 import { completeJson } from "../../src/server/llm.js";
 import { refreshProjectReadiness } from "../../src/server/auditMapping.js";
 
@@ -106,14 +106,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // ── Tier 1: AI analysis ────────────────────────────────────────────────
     let audit: any = null;
 
-    audit = await completeJson(IMPACT_SYSTEM_PROMPT, javaCode, { maxTokens: 1800 });
-    if (audit && !Array.isArray(audit.api_surface)) {
+    try {
+      audit = await completeJson(IMPACT_SYSTEM_PROMPT, javaCode, { maxTokens: 1800 });
+      if (audit && !Array.isArray(audit.api_surface)) {
+        audit = null;
+      }
+    } catch (llmErr) {
+      console.warn("AI analysis failed in /analyze/impact, falling back to static analysis:", llmErr);
       audit = null;
     }
 
     // ── Tier 2: Static impact analysis on real uploaded code ───────────────
     if (!audit) {
       audit = detectJavaImpactAudit(javaCode, fileName);
+    }
+
+    if (!audit.diagrams || audit.diagrams.length === 0) {
+      audit.diagrams = generateDetailedMermaidDiagrams(javaCode, fileName);
     }
 
     // ── Persist to DB ──────────────────────────────────────────────────────

@@ -12,7 +12,12 @@ if (!process.env.DATABASE_URL) {
   process.exit(0);
 }
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const isNeon = (process.env.DATABASE_URL || "").includes("neon.tech") || (process.env.DATABASE_URL || "").includes("sslmode=require");
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: isNeon ? { rejectUnauthorized: false } : undefined,
+  connectionTimeoutMillis: 10000,
+});
 const prisma = new PrismaClient({ adapter: new PrismaPg(pool) });
 
 function hashPassword(password) {

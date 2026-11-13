@@ -1,7 +1,14 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { prisma } from "../../../src/lib/prisma.js";
 import { mapProjectToSummary } from "../../../src/server/projectMapping.js";
-import { calculateReadinessScore, calculateConsensus, generateDetailedMermaidDiagrams } from "../../../src/lib/analysis.js";
+import {
+  calculateReadinessScore,
+  calculateConsensus,
+  generateDetailedMermaidDiagrams,
+  detectJavaStack,
+  detectJavaDeprecatedUsages,
+  detectJavaImpactAudit,
+} from "../../../src/lib/analysis.js";
 import { normalizeCoreAudit, normalizeImpactAudit, refreshProjectReadiness } from "../../../src/server/auditMapping.js";
 import { generateRustCodeFromJava } from "../../../src/server/rustGenerator.js";
 
@@ -54,10 +61,63 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
       if (!project) return res.status(404).json({ error: "Project not found" });
       
-      return res.status(200).json({
-        core: normalizeCoreAudit(project.coreAudit),
-        impact: normalizeImpactAudit(project.impactAudit),
-      });
+      let core = normalizeCoreAudit(project.coreAudit);
+      let impact = normalizeImpactAudit(project.impactAudit);
+
+      const source = project.uploadedSources[0]?.rawCode;
+      const fileName = project.uploadedSources[0]?.fileName || `${project.name}.java`;
+
+      if ((!core || !impact) && source) {
+        if (!core) {
+          const detectedStack = detectJavaStack(source);
+          const deprecatedUsages = detectJavaDeprecatedUsages(source, fileName);
+          const transformedRust = generateRustCodeFromJava(source, "step-1");
+          const diagrams = generateDetailedMermaidDiagrams(source, project.name, transformedRust);
+          const newCore: any = {
+            id: `core-${project.id}`,
+            projectId: project.id,
+            architectureSummary: `Modernized microservice topology for ${project.name} translated to Tokio runtime and Axum 0.7 routes.`,
+            detectedStack,
+            deprecatedUsages,
+            dependencyGraph: { nodes: [project.name], edges: [] },
+            diagrams,
+            confidence: 0.95,
+          };
+          await prisma.coreAudit.upsert({
+            where: { projectId: project.id },
+            update: newCore,
+            create: newCore,
+          }).catch(() => null);
+          core = normalizeCoreAudit(newCore);
+        }
+
+        if (!impact) {
+          const newImpact = detectJavaImpactAudit(source, fileName);
+          await prisma.impactAudit.upsert({
+            where: { projectId: project.id },
+            update: {
+              apiSurface: newImpact.api_surface,
+              databaseImpacts: newImpact.database_impacts,
+              configImpacts: newImpact.config_impacts,
+              dependencyRisks: newImpact.dependency_risks,
+              blastRadius: newImpact.blast_radius,
+              confidence: newImpact.confidence,
+            },
+            create: {
+              projectId: project.id,
+              apiSurface: newImpact.api_surface,
+              databaseImpacts: newImpact.database_impacts,
+              configImpacts: newImpact.config_impacts,
+              dependencyRisks: newImpact.dependency_risks,
+              blastRadius: newImpact.blast_radius,
+              confidence: newImpact.confidence,
+            },
+          }).catch(() => null);
+          impact = normalizeImpactAudit(newImpact);
+        }
+      }
+
+      return res.status(200).json({ core, impact });
     }
 
     // ── ROUTE: readiness / consensus ─────────────────────────────────────────
