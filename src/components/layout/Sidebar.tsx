@@ -72,37 +72,13 @@ export const Sidebar: React.FC = () => {
     queryClient.invalidateQueries({ queryKey: ["projects"] });
   };
 
-  const { data: projectDetails } = useQuery({
+  const { data: _projectDetails } = useQuery({
     queryKey: ["project-details", selectedProjectId],
     queryFn: () => getProjectDetails(selectedProjectId),
     enabled: !!selectedProjectId,
   });
 
-  const isRouteUnlocked = (label: string): boolean => {
-    if (label.includes("Blueprint")) return true;
-
-    const manualCore = sessionStorage.getItem("ema_unlocked_core-audit") === "true";
-    const manualImpact = sessionStorage.getItem("ema_unlocked_impact-audit") === "true";
-    const manualReadiness = sessionStorage.getItem("ema_unlocked_readiness") === "true";
-    const manualReport = sessionStorage.getItem("ema_unlocked_report") === "true";
-
-    if (label.includes("Core")) {
-      const blueprintSteps = projectDetails?.blueprint?.steps || [];
-      const hasApprovedSteps = blueprintSteps.length > 0 && blueprintSteps.some((s: any) => s.status === "approved");
-      return manualCore || manualImpact || manualReadiness || manualReport || hasApprovedSteps;
-    }
-
-    if (label.includes("Impact")) {
-      return manualImpact || manualReadiness || manualReport || !!projectDetails?.core_audit;
-    }
-    if (label.includes("Readiness")) {
-      return manualReadiness || manualReport || (!!projectDetails?.core_audit && !!projectDetails?.impact_audit);
-    }
-    if (label.includes("Report")) {
-      const blueprintSteps = projectDetails?.blueprint?.steps || [];
-      const allApproved = blueprintSteps.length > 0 && blueprintSteps.every((s: any) => s.status === "approved");
-      return manualReport || (!!projectDetails?.core_audit && !!projectDetails?.impact_audit && allApproved);
-    }
+  const isRouteUnlocked = (_label: string): boolean => {
     return true;
   };
 

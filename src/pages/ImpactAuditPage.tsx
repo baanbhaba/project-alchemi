@@ -13,7 +13,7 @@ export const ImpactAuditPage: React.FC = () => {
   const navigate = useNavigate();
   const [expandedBlastIndex, setExpandedBlastIndex] = useState<number | null>(null);
 
-  const { data: projectDetails } = useQuery({
+  const { data: _projectDetails } = useQuery({
     queryKey: ["project-details", id],
     queryFn: () => getProjectDetails(id || ""),
     enabled: !!id,
@@ -40,20 +40,12 @@ export const ImpactAuditPage: React.FC = () => {
   if (isLoading)
     return (
       <LoadingSkeleton
-        phase="Impact & Blast Radius Analysis"
+        title="Impact Audit & Blast Radius Analysis"
         description="Assessing database migrations, breaking changes, API consumers, and operational risk factors."
       />
     );
 
-  const coreDone = !!projectDetails?.core_audit || sessionStorage.getItem("ema_unlocked_impact-audit") === "true";
-  if (projectDetails && !coreDone) {
-    return (
-      <ErrorState
-        title="Stage Locked"
-        message="Core Audit must be executed before access to Impact Audit is granted."
-      />
-    );
-  }
+
 
   if (isError) {
     return (

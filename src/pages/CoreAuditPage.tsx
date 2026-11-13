@@ -16,7 +16,7 @@ export const CoreAuditPage: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState<"file" | "pattern">("file");
 
-  const { data: projectDetails } = useQuery({
+  const { data: _projectDetails } = useQuery({
     queryKey: ["project-details", id],
     queryFn: () => getProjectDetails(id || ""),
     enabled: !!id,
@@ -43,24 +43,12 @@ export const CoreAuditPage: React.FC = () => {
   if (isLoading)
     return (
       <LoadingSkeleton
-        phase="Core Architectural Audit"
+        title="Core Audit & Architecture Analysis"
         description="Extracting Java AST, detecting deprecated API patterns, and building static component topology."
       />
     );
 
-  const blueprintSteps = projectDetails?.blueprint?.steps || [];
-  const blueprintApprovedOrUnlocked =
-    sessionStorage.getItem("ema_unlocked_core-audit") === "true" ||
-    (blueprintSteps.length > 0 && blueprintSteps.some((s: any) => s.status === "approved"));
 
-  if (projectDetails && !blueprintApprovedOrUnlocked) {
-    return (
-      <ErrorState
-        title="Stage Locked"
-        message="Blueprint Review must be approved or unlocked before access to Core Audit is granted."
-      />
-    );
-  }
 
   if (isError) {
     return (

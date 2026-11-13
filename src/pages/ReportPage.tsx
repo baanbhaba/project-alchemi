@@ -51,18 +51,7 @@ export const ReportPage: React.FC = () => {
       />
     );
 
-  const blueprintSteps = projectDetails?.blueprint?.steps || [];
-  const allApproved = blueprintSteps.length > 0 && blueprintSteps.every((s: any) => s.status === "approved");
-  const reportUnlocked = allApproved || sessionStorage.getItem("ema_unlocked_report") === "true";
 
-  if (projectDetails && !reportUnlocked) {
-    return (
-      <ErrorState
-        title="Stage Locked"
-        message="All steps in the Blueprint Review must be Approved before generating the final Migration Report."
-      />
-    );
-  }
   if (isError) {
     return (
       <ErrorState
@@ -114,7 +103,7 @@ export const ReportPage: React.FC = () => {
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={() => exportPdfReport(projectDetails?.name || id || "Migrated Service", report, blueprintSteps)}
+              onClick={() => exportPdfReport(projectDetails?.name || id || "Migrated Service", report, report.blueprint?.steps || [])}
               className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-black font-bold rounded text-xs transition-colors flex items-center space-x-1.5 cursor-pointer shadow-xs"
             >
               <Printer className="w-3.5 h-3.5" />

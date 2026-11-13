@@ -54,7 +54,7 @@ export const ReadinessPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
 
-  const { data: projectDetails } = useQuery({
+  const { data: _projectDetails } = useQuery({
     queryKey: ["project-details", id],
     queryFn: () => getProjectDetails(id || ""),
     enabled: !!id,
@@ -99,15 +99,7 @@ export const ReadinessPage: React.FC = () => {
       />
     );
 
-  const prevDone = (!!projectDetails?.core_audit && !!projectDetails?.impact_audit) || sessionStorage.getItem("ema_unlocked_readiness") === "true";
-  if (projectDetails && !prevDone) {
-    return (
-      <ErrorState
-        title="Stage Locked"
-        message="Core Audit and Impact Audit must be executed before access to Readiness & Consensus is granted."
-      />
-    );
-  }
+
 
   if (isErrorScore || isErrorConsensus) {
     return (

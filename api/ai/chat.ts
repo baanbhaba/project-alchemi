@@ -342,55 +342,116 @@ function detectJavaImpactAudit(javaCode: string, fileName: string): ImpactAudit 
 }
 
 function generateRustCodeFromJava(javaCode: string): string {
-  const classMatch = javaCode.match(/(?:public\s+)?class\s+([A-Za-z0-9_]+)/) || javaCode.match(/class\s+([A-Za-z0-9_]+)/);
-  const className = classMatch ? classMatch[1] : "GeneratedMigration";
+  const classMatch =
+    javaCode.match(/(?:public\s+)?(?:class|interface|record)\s+([A-Za-z0-9_]+)/) ||
+    javaCode.match(/(?:class|interface|record)\s+([A-Za-z0-9_]+)/);
+  const className = classMatch ? classMatch[1] : "MigratedService";
+  const slugName = className.toLowerCase();
 
-  // Extract fields from Java class: e.g. private String paymentId; private double amount;
-  const fieldMatches = [...javaCode.matchAll(/(?:private|protected|public)\s+([A-Za-z0-9_<>]+)\s+([A-Za-z0-9_]+);/g)];
-  const fields = fieldMatches.map((m) => {
-    const type = m[1];
-    const name = m[2];
+  // Extract fields matching typed Java variables: e.g. private String orderId; private double total;
+  const fieldMatches = [
+    ...javaCode.matchAll(
+      /(?:(?:private|protected|public)\s+)?(?:final\s+)?(?:static\s+)?\b(int|Integer|long|Long|short|byte|double|Double|float|Float|boolean|Boolean|String|List<[^>]+>|Set<[^>]+>|Map<[^>]+>|Vector<[^>]+>|Hashtable<[^>]+>|[A-Z][A-Za-z0-9_<>]*)\s+([a-z][A-Za-z0-9_]*)\s*(?:=\s*[^;]+)?;?/g
+    ),
+  ];
+  const seenFields = new Set<string>();
+  const fields: Array<{ name: string; rustType: string; defaultVal: string }> = [];
+
+  for (const m of fieldMatches) {
+    const rawType = m[1];
+    const rawName = m[2];
+    if (["class", "interface", "record", "return", "new", "throw", "import", "package"].includes(rawType)) continue;
+    if (["class", "interface", "record", "void", "static"].includes(rawName)) continue;
+    if (seenFields.has(rawName)) continue;
+    seenFields.add(rawName);
+
     let rustType = "String";
-    if (type.includes("int") || type.includes("Integer")) rustType = "i64";
-    else if (type.includes("double") || type.includes("Float")) rustType = "f64";
-    else if (type.includes("boolean") || type.includes("Boolean")) rustType = "bool";
-    else if (type.includes("List")) rustType = "Vec<String>";
-    else if (type.includes("Map")) rustType = "std::collections::HashMap<String, String>";
-    return { name, rustType };
-  });
+    let defaultVal = 'String::new()';
 
-  // Extract methods: e.g. public ResponseEntity processPayment(PaymentRequest req)
-  const methodMatches = [...javaCode.matchAll(/(?:public|private)\s+([A-Za-z0-9_<>]+)\s+([A-Za-z0-9_]+)\s*\(([^)]*)\)/g)];
-  const methods = methodMatches
+    if (/^(?:int|Integer|long|Long|short|byte)$/i.test(rawType)) {
+      rustType = "i64";
+      defaultVal = "0";
+    } else if (/^(?:double|Double|float|Float)$/i.test(rawType)) {
+      rustType = "f64";
+      defaultVal = "0.0";
+    } else if (/^(?:boolean|Boolean)$/i.test(rawType)) {
+      rustType = "bool";
+      defaultVal = "false";
+    } else if (/List<([^>]+)>|ArrayList<([^>]+)>|Vector<([^>]+)>/i.test(rawType)) {
+      rustType = "Vec<String>";
+      defaultVal = "Vec::new()";
+    } else if (/Map<([^>]+)>|HashMap<([^>]+)>|Hashtable<([^>]+)>/i.test(rawType)) {
+      rustType = "std::collections::HashMap<String, String>";
+      defaultVal = "std::collections::HashMap::new()";
+    } else if (/Set<([^>]+)>|HashSet<([^>]+)>/i.test(rawType)) {
+      rustType = "std::collections::HashSet<String>";
+      defaultVal = "std::collections::HashSet::new()";
+    } else if (/Date|Calendar|Instant/i.test(rawType)) {
+      rustType = "chrono::DateTime<chrono::Utc>";
+      defaultVal = "chrono::Utc::now()";
+    }
+
+    fields.push({ name: rawName, rustType, defaultVal });
+  }
+
+  // Extract methods
+  const methodMatches = [...javaCode.matchAll(/(?:public|protected|private)?\s*(?:static)?\s*([A-Za-z0-9_<>]+)\s+([A-Za-z0-9_]+)\s*\(([^)]*)\)/g)];
+  const methods: Array<{ name: string; rustMethodName: string; returnType: string }> = [];
+  const seenMethods = new Set<string>();
+
+  for (const m of methodMatches) {
+    const retType = m[1];
+    const mName = m[2];
+    if (["if", "while", "for", "switch", "catch", "new", className].includes(mName)) continue;
+    if (seenMethods.has(mName)) continue;
+    seenMethods.add(mName);
+
+    const rustMethodName = mName.replace(/([A-Z])/g, "_$1").toLowerCase().replace(/^_/, "");
+    methods.push({ name: mName, rustMethodName, returnType: retType });
+  }
+
+  const rustFields = fields.length > 0
+    ? fields.map((f) => `    pub ${f.name}: ${f.rustType},`).join("\n")
+    : `    pub id: String,\n    pub name: String,\n    pub is_active: bool,`;
+
+  const rustInitFields = fields.length > 0
+    ? fields.map((f) => `            ${f.name}: ${f.defaultVal},`).join("\n")
+    : `            id: "svc_${slugName}".to_string(),\n            name: "${className}".to_string(),\n            is_active: true,`;
+
+  const rustMethods = methods
+    .filter((m) => m.rustMethodName !== "main")
     .map((m) => {
-      const returnType = m[1];
-      const methodName = m[2].replace(/([A-Z])/g, "_$1").toLowerCase();
-      return { name: methodName, returnType };
-    })
-    .filter((m) => m.name !== "main" && !m.name.startsWith("_"));
+      let logic = `Ok(())`;
+      let retType = `Result<(), Box<dyn std::error::Error + Send + Sync>>`;
 
-  const isMainApp = javaCode.includes("static void main") || javaCode.includes("public static void main");
-  const isRestController = javaCode.includes("@RestController") || javaCode.includes("@RequestMapping") || javaCode.includes("@GetMapping") || javaCode.includes("@PostMapping");
+      if (/int|Integer|long|Long|double|Float/i.test(m.returnType)) {
+        logic = `Ok(1)`;
+        retType = `Result<i64, Box<dyn std::error::Error + Send + Sync>>`;
+      } else if (/bool|Boolean/i.test(m.returnType)) {
+        logic = `Ok(true)`;
+        retType = `Result<bool, Box<dyn std::error::Error + Send + Sync>>`;
+      } else if (/String/i.test(m.returnType)) {
+        logic = `Ok("${m.name}_completed".to_string())`;
+        retType = `Result<String, Box<dyn std::error::Error + Send + Sync>>`;
+      }
 
-  if (isMainApp) {
-    const rustFields = fields.length > 0
-      ? fields.map((f) => `    pub ${f.name}: ${f.rustType},`).join("\n")
-      : `    pub name: String,`;
-
-    const rustInit = fields.length > 0
-      ? fields.map((f) => `            ${f.name}: ${f.rustType === "String" ? 'String::new()' : f.rustType === "bool" ? 'false' : f.rustType.startsWith("Vec") ? 'Vec::new()' : '0'}`).join(",\n")
-      : `            name: "${className}".to_string()`;
-
-    const rustMethods = methods.map((m) => {
-      return `    pub fn ${m.name}(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        println!("Executed ${m.name} in ${className}");
-        Ok(())
+      return `    pub async fn ${m.rustMethodName}(&mut self) -> ${retType} {
+        ${logic}
     }`;
-    }).join("\n\n");
+    })
+    .join("\n\n");
 
-    const execCalls = methods.map((m) => `    app.${m.name}()?;`).join("\n");
+  return `use axum::{
+    extract::{Json, State},
+    response::IntoResponse,
+    routing::{get, post},
+    Router,
+};
+use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
-    return `#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ${className} {
 ${rustFields}
 }
@@ -398,29 +459,12 @@ ${rustFields}
 impl ${className} {
     pub fn new() -> Self {
         Self {
-${rustInit}
+${rustInitFields}
         }
     }
 
-${rustMethods || `    pub fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {\n        println!("Running ${className} service...");\n        Ok(())\n    }`}
+${rustMethods || `    pub async fn execute_task(&mut self) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {\n        Ok("${className}_executed".to_string())\n    }`}
 }
-
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("Starting ${className} service...");
-    let mut app = ${className}::new();
-${execCalls || `    app.run()?;`}
-    println!("Execution completed successfully.");
-    Ok(())
-}`;
-  }
-
-  if (isRestController) {
-    const rustFields = fields.length > 0
-      ? fields.map((f) => `    pub ${f.name}: ${f.rustType},`).join("\n")
-      : `    pub request_id: String,\n    pub status: String,`;
-
-    return `use axum::{routing::{get, post}, Router, Json, response::IntoResponse};
-use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ${className}Payload {
@@ -431,53 +475,60 @@ ${rustFields}
 pub struct ${className}Response {
     pub success: bool,
     pub message: String,
-    pub payload: Option<${className}Payload>,
+    pub data: Option<${className}>,
 }
 
-pub async fn handle_${className.toLowerCase()}_process(
+pub struct AppState {
+    pub service: RwLock<${className}>,
+}
+
+impl AppState {
+    pub fn new() -> Self {
+        Self {
+            service: RwLock::new(${className}::new()),
+        }
+    }
+}
+
+pub async fn handle_${slugName}_status(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let service = state.service.read().await;
+    Json(service.clone())
+}
+
+pub async fn handle_${slugName}_process(
+    State(state): State<Arc<AppState>>,
     Json(payload): Json<${className}Payload>,
 ) -> impl IntoResponse {
+    let mut service = state.service.write().await;
+${fields.length > 0 ? fields.map((f) => `    service.${f.name} = payload.${f.name};`).join("\n") : `    service.is_active = true;`}
     let response = ${className}Response {
         success: true,
-        message: format!("Successfully executed Axum handler for ${className}"),
-        payload: Some(payload),
+        message: format!("Successfully processed request for ${className}"),
+        data: Some(service.clone()),
     };
     Json(response)
 }
 
-pub fn create_${className.toLowerCase()}_router() -> Router {
+pub fn create_${slugName}_router(state: Arc<AppState>) -> Router {
     Router::new()
-        .route("/api/v1/${className.toLowerCase()}", post(handle_${className.toLowerCase()}_process))
-}`;
-  }
-
-  const rustFields = fields.length > 0
-    ? fields.map((f) => `    pub ${f.name}: ${f.rustType},`).join("\n")
-    : `    pub id: String,\n    pub created_at: String,\n    pub is_active: bool,`;
-
-  const rustMethods = methods.map((m) => {
-    return `    pub async fn ${m.name}(&mut self) -> Result<String, String> {
-        Ok(format!("Executed ${m.name} successfully in ${className}"))
-    }`;
-  }).join("\n\n");
-
-  return `use serde::{Serialize, Deserialize};
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ${className} {
-${rustFields}
+        .route("/health", get(|| async { "OK" }))
+        .route("/api/v1/${slugName}", get(handle_${slugName}_status).post(handle_${slugName}_process))
+        .with_state(state)
 }
 
-impl ${className} {
-    pub fn new() -> Self {
-        Self {
-            id: "ID_INITIALIZED".to_string(),
-            created_at: "2026-08-11T00:00:00Z".to_string(),
-            is_active: true,
-        }
-    }
+pub fn create_router(state: Arc<AppState>) -> Router {
+    create_${slugName}_router(state)
+}
 
-${rustMethods || `    pub async fn execute_${className.toLowerCase()}_task(&mut self) -> Result<String, String> {\n        Ok(format!("Processing task for ${className}"))\n    }`}
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let state = Arc::new(AppState::new());
+    let app = create_router(state);
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;
+    axum::serve(listener, app).await?;
+    Ok(())
 }`;
 }
 

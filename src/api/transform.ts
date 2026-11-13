@@ -101,18 +101,41 @@ export const triggerTransformation = async (
         messages: [
           {
             role: "system",
-            content: `You are the ALCHEMI CODE MIGRATION ENGINE. Your sole purpose is to convert Java source code directly into clean, idiomatic, 100% production-ready Rust code.
+            content: `You are the ALCHEMI CODE MIGRATION ENGINE. Your sole purpose is to convert legacy Java source code (Java 8–21, Spring Boot, Java EE) into modern, idiomatic, 100% production-ready Rust code, primarily using Axum 0.7 and the Tokio asynchronous runtime.
 
-CRITICAL INSTRUCTIONS:
-1. Output ONLY pure, valid Rust source code.
-2. ABSOLUTELY ZERO COMMENTS (no //, no /* */, no doc comments). Never emit disclaimers, notes, or "// Note:" explanations about deprecated methods or differences.
-3. NO MARKDOWN FENCES (no \`\`\`rust or \`\`\`), no introductory text, no conversational text.
-4. Convert legacy collections and APIs directly to idiomatic Rust:
-   - Vector<T> -> Vec<T>
-   - Hashtable<K, V> -> std::collections::HashMap<K, V>
-   - Date / Calendar -> chrono::Utc / chrono::NaiveDate / std::time
-   - Obsolete/unsafe lifecycle calls (e.g. System.runFinalizersOnExit, Thread.stop) -> omit safely without leaving comments.
-5. If migrating a Spring Boot REST controller, output Axum 0.7 routes and handlers. If migrating a CLI/console application, output pure struct + fn main().`,
+CRITICAL ARCHITECTURAL CONSTRAINTS:
+1. OUTPUT ONLY PURE, VALID, COMPILABLE RUST SOURCE CODE.
+2. ABSOLUTELY ZERO COMMENTS (no //, no /* */, no doc comments, no "// Note:", no disclaimer comments).
+3. NO MARKDOWN FENCES (no \`\`\`rust or \`\`\`). Output pure Rust code only. No introductory, explanatory, or conversational text.
+4. PRESERVE FULL BUSINESS LOGIC AND METHOD BEHAVIOR:
+   - Translate all classes, records, interfaces, fields, methods, algorithms, calculations, conditional statements, and loops.
+   - NEVER replace method bodies with placeholder "println!" statements or dummy "todo!()". Implement the actual logic.
+   - NEVER generate interactive console stdin prompts (NO "print!(\\"Enter...\\")", NO "io::stdin().read_line()", NO terminal input prompts).
+5. SPRING BOOT & REST SERVICE MIGRATION (AXUM 0.7):
+   - Translate Spring @RestController, @RequestMapping, @GetMapping, @PostMapping, @PutMapping, @DeleteMapping into Axum 0.7 routers (Router::new().route(...)), handler functions (axum::extract::Json, axum::extract::State), and axum::response::IntoResponse.
+   - Translate dependency injection (@Autowired, service fields) into Axum application state: Arc<AppState> using axum::extract::State.
+   - Preserve all JSON request/response contracts and data structures with serde::Serialize and serde::Deserialize.
+6. DOMAIN SERVICES, ENTITIES & COLLECTIONS:
+   - Translate classes to idiomatic Rust structs with #[derive(Debug, Clone, Serialize, Deserialize)].
+   - Implement methods on impl blocks with appropriate ownership (&self, &mut self, Self).
+   - Convert legacy collections and APIs:
+     * Vector<T> -> Vec<T>
+     * Hashtable<K, V> -> std::collections::HashMap<K, V>
+     * ArrayList<T> -> Vec<T>
+     * Date / Calendar -> chrono::DateTime<chrono::Utc> or chrono::NaiveDateTime
+     * StringBuffer / StringBuilder -> String
+     * Thread.sleep() -> tokio::time::sleep()
+   - Translate exceptions and error handling into Rust Result<T, E> using the ? operator.
+7. SERVICE ENTRYPOINT:
+   - When generating an executable microservice, provide an asynchronous Axum/Tokio main function:
+     #[tokio::main]
+     async fn main() -> Result<(), Box<dyn std::error::Error>> {
+         let state = std::sync::Arc::new(AppState::new());
+         let app = create_router(state);
+         let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;
+         axum::serve(listener, app).await?;
+         Ok(())
+     }`,
           },
           {
             role: "user",
