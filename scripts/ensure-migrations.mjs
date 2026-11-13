@@ -11,8 +11,8 @@ try {
 } catch {}
 
 if (!process.env.DATABASE_URL) {
-  console.error("ensure-migrations: DATABASE_URL is not set.");
-  process.exit(1);
+  console.log("ensure-migrations: DATABASE_URL is not set; skipping database migrations.");
+  process.exit(0);
 }
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });

@@ -8,8 +8,8 @@ try {
 } catch {}
 
 if (!process.env.DATABASE_URL) {
-  console.error("DATABASE_URL environment variable is not set.");
-  process.exit(1);
+  console.log("seed: DATABASE_URL environment variable is not set; skipping database seeding.");
+  process.exit(0);
 }
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
