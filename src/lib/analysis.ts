@@ -670,48 +670,133 @@ export function calculateConsensus(
   const depUsages = coreAudit?.deprecated_usages || [];
   const depRisks = impactAudit?.dependency_risks || [];
   const dbImpacts = impactAudit?.database_impacts || [];
+  const blastRadius = impactAudit?.blast_radius || [];
 
+  // ── Actual Mathematical Metrics from Impact Audit ─────────────────────────
+  const totalApis = apiSurface.length;
+  const highRiskApiCount = apiSurface.filter((a) => a.breaking_change_risk === "high").length;
+  const medRiskApiCount = apiSurface.filter((a) => a.breaking_change_risk === "medium").length;
+
+  const totalBlastItems = blastRadius.length;
+  const highSeverityBlastCount = blastRadius.filter((b) => b.severity === "high").length;
+  const medSeverityBlastCount = blastRadius.filter((b) => b.severity === "medium").length;
+  const totalAffectedFiles = blastRadius.reduce((acc, b) => acc + (b.affected_files?.length || 0), 0);
+
+  const highRiskDbCount = dbImpacts.filter((d) => d.risk === "high").length;
+  const medRiskDbCount = dbImpacts.filter((d) => d.risk === "medium").length;
+
+  const highDepRiskCount = depRisks.filter(
+    (d) => d.risk === "high" || (d.known_breaking_changes && d.known_breaking_changes.length > 1)
+  ).length;
+
+  // 1. API Contract & Gateway Surface Conflict
   const primaryApi = apiSurface[0]?.endpoint_or_interface || primaryFile;
-  const apiRisk = apiSurface[0]?.breaking_change_risk || "low";
+  const apiRisk = apiSurface[0]?.breaking_change_risk || (highRiskApiCount > 0 ? "high" : medRiskApiCount > 0 ? "medium" : "low");
+  const apiResolved = highRiskApiCount === 0 && apiRisk !== "high";
 
   conflicts.push({
     topic: `Target Migration Pattern & API Contract for ${primaryApi}`,
-    core_position: `Convert ${primaryFile} structures and endpoints to native Rust Axum async handlers.`,
-    impact_position: `Ensure zero breaking API contract changes for downstream consumers (${apiRisk.toUpperCase()} risk detected).`,
-    resolved: apiRisk !== "high",
+    core_position: `Convert ${primaryFile} structures and endpoints (${totalApis} detected interfaces) to native Rust Axum async handlers.`,
+    impact_position: `Ensure zero breaking API contract changes for downstream consumers (${highRiskApiCount} high, ${medRiskApiCount} med risk detected).`,
+    resolved: apiResolved,
   });
 
+  // 2. Dependency Risk & EOL Crate Modernization Conflict
   if (depUsages.length > 0 || depRisks.length > 0) {
     const mainPattern = depUsages[0]?.pattern || depRisks[0]?.dependency || depRisks[0]?.library || "Legacy Dependencies";
     const replacement = depUsages[0]?.recommended_replacement || depRisks[0]?.mitigation || depRisks[0]?.target_version || "Updated Crates/Packages";
+    const depResolved = highDepRiskCount === 0;
     conflicts.push({
       topic: `Modernization Strategy: ${mainPattern}`,
       core_position: `Refactor legacy calls from '${mainPattern}' to '${replacement}'.`,
-      impact_position: `Verify backward compatibility and non-breaking upgrade paths across all dependents.`,
-      resolved: depRisks.length === 0 || !depRisks.some((d) => (d.known_breaking_changes?.length ?? 0) > 1),
+      impact_position: `Verify backward compatibility across ${depRisks.length} target libraries (${highDepRiskCount} breaking risks flagged).`,
+      resolved: depResolved,
     });
   }
 
+  // 3. Database Schema & Connection Pool Integration Conflict
   if (dbImpacts.length > 0) {
     const dbComp = dbImpacts[0].component || "Database Layer";
+    const dbResolved = highRiskDbCount === 0;
     conflicts.push({
       topic: `Database Integration (${dbComp})`,
       core_position: `Migrate legacy ORM/JPA mappings to SQLx / async Rust database drivers.`,
-      impact_position: `Assess migration risk for schema locks, transaction boundaries, and pool connections (${dbImpacts[0].risk} risk).`,
-      resolved: dbImpacts[0].risk !== "high",
+      impact_position: `Assess migration risk for schema locks, transaction boundaries, and pool connections (${highRiskDbCount} high, ${medRiskDbCount} med risk).`,
+      resolved: dbResolved,
     });
   }
 
-  const coreConf = coreAudit?.confidence ?? 0.92;
-  const impactConf = impactAudit?.confidence ?? 0.90;
-  const unified_confidence = Math.round(((coreConf + impactConf) / 2) * 100) / 100;
-  const hasUnresolved = conflicts.some((c) => !c.resolved);
+  // 4. Concurrency & Blast Radius Memory Safety Conflict
+  if (blastRadius.length > 0) {
+    const blastResolved = highSeverityBlastCount === 0 && totalAffectedFiles <= 3;
+    conflicts.push({
+      topic: `Blast Radius & State Mutation Scope (${totalBlastItems} changes across ${totalAffectedFiles} files)`,
+      core_position: `Isolate state mutations using tokio::sync::RwLock and Arc wrappers for zero data races.`,
+      impact_position: `Validate operational blast radius (${highSeverityBlastCount} high, ${medSeverityBlastCount} med severity risks, ${totalAffectedFiles} files affected).`,
+      resolved: blastResolved,
+    });
+  }
+
+  // ── Mathematical Unified Confidence from Impact Audit Metrics ─────────────
+  const baseCore = typeof coreAudit?.confidence === "number" ? coreAudit.confidence : 0.95;
+  const baseImpact = typeof impactAudit?.confidence === "number"
+    ? impactAudit.confidence
+    : Math.max(0.50, Math.round((0.95 - (highRiskApiCount * 0.05 + highSeverityBlastCount * 0.04 + highRiskDbCount * 0.03)) * 100) / 100);
+
+  const unified_confidence = Math.round(((baseCore + baseImpact) / 2) * 100) / 100;
+
+  // Iteration logic mathematically determined by unresolved conflict count from impact audit:
+  const unresolvedCount = conflicts.filter((c) => !c.resolved).length;
+  const iteration = unresolvedCount > 0 ? Math.min(3, 1 + unresolvedCount) : 1;
+  const should_iterate_again = unresolvedCount > 0 || unified_confidence < 0.85;
 
   return {
-    iteration: hasUnresolved ? 2 : 1,
+    iteration,
     conflicts,
     unified_confidence,
-    should_iterate_again: hasUnresolved || unified_confidence < 0.85,
+    should_iterate_again,
+  };
+}
+
+function toSnakeKey(key: string): string {
+  return key.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
+}
+
+export function toSnakeCaseKeys(value: any): any {
+  if (Array.isArray(value)) return value.map(toSnakeCaseKeys);
+  if (value && typeof value === "object") {
+    const out: Record<string, any> = {};
+    for (const [k, v] of Object.entries(value)) {
+      out[toSnakeKey(k)] = toSnakeCaseKeys(v);
+    }
+    return out;
+  }
+  return value;
+}
+
+export function normalizeCoreAudit(raw: any): CoreAudit | null {
+  if (!raw) return null;
+  const audit = toSnakeCaseKeys(raw);
+  return {
+    architecture_summary: audit.architecture_summary || "Architecture audit",
+    detected_stack: audit.detected_stack || [],
+    deprecated_usages: audit.deprecated_usages || [],
+    dependency_graph: audit.dependency_graph || { nodes: [], edges: [] },
+    diagrams: audit.diagrams || [],
+    confidence: typeof audit.confidence === "number" ? audit.confidence : 0.9,
+  };
+}
+
+export function normalizeImpactAudit(raw: any): ImpactAudit | null {
+  if (!raw) return null;
+  const audit = toSnakeCaseKeys(raw);
+  return {
+    api_surface: audit.api_surface || [],
+    database_impacts: audit.database_impacts || [],
+    config_impacts: audit.config_impacts || [],
+    dependency_risks: audit.dependency_risks || [],
+    blast_radius: audit.blast_radius || [],
+    confidence: typeof audit.confidence === "number" ? audit.confidence : 0.9,
   };
 }
 

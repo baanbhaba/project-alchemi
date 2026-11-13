@@ -11,6 +11,7 @@ import {
 } from "../../../src/lib/analysis.js";
 import { normalizeCoreAudit, normalizeImpactAudit, refreshProjectReadiness } from "../../../src/server/auditMapping.js";
 import { completeText, MIGRATION_SYSTEM_PROMPT } from "../../../src/server/llm.js";
+import { generateRustCodeFromJava } from "../../../src/server/rustGenerator.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const { id, route, stepId } = req.query;
@@ -340,11 +341,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         },
       });
 
-      if (transformStepId && project.blueprint) {
-        await prisma.blueprintStep.update({
-          where: { id: transformStepId },
-          data: { targetPattern: targetRustCode, status: "approved" },
-        }).catch(() => null);
+      if (project.blueprint && project.blueprint.steps && project.blueprint.steps.length > 0) {
+        const targetStep = project.blueprint.steps.find((s: any) => s.id === transformStepId) || project.blueprint.steps[0];
+        if (targetStep) {
+          await prisma.blueprintStep.update({
+            where: { id: targetStep.id },
+            data: { targetPattern: targetRustCode, status: "approved" },
+          }).catch(() => null);
+        }
       }
 
       const readiness = await refreshProjectReadiness(id);
@@ -426,7 +430,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           pattern.includes("Click 'Transform Step'") ||
           (pattern.includes("pub struct ") && pattern.includes("Handler {\n"));
 
-        const rustCode = !isGenericPlaceholder ? pattern : latestRust;
+        let rustCode = !isGenericPlaceholder ? pattern : latestRust;
+        if (!rustCode || rustCode.trim().length === 0 || rustCode.includes("Click 'Transform Step'")) {
+          rustCode = generateRustCodeFromJava(rawJava);
+        }
         const javaLines = rawJava.split("\n");
         const rustLines = rustCode.split("\n");
 
@@ -534,14 +541,33 @@ ${configImpactNotes || "- Restore application.properties / application.yml confi
       const rawJava = primarySource ? primarySource.rawCode : "";
       const latestRust = project.transformations?.[0]?.transformedRustCode || "";
       
-      let finalCoreAudit = project.coreAudit;
+      let finalCoreAudit = normalizeCoreAudit(project.coreAudit);
       if (finalCoreAudit) {
         finalCoreAudit = {
-          ...(typeof finalCoreAudit === "string" ? JSON.parse(finalCoreAudit as string) : finalCoreAudit),
+          ...finalCoreAudit,
+          java_code: rawJava,
+          rust_code: latestRust,
+        } as any;
+      } else if (rawJava.trim()) {
+        const fileName = primarySource?.fileName || `${project.name}.java`;
+        finalCoreAudit = {
+          architecture_summary: `Modernized microservice topology for ${project.name} translated to Tokio runtime and Axum 0.7 routes.`,
+          detected_stack: detectJavaStack(rawJava),
+          deprecated_usages: detectJavaDeprecatedUsages(rawJava, fileName),
+          dependency_graph: { nodes: [project.name], edges: [] },
+          diagrams: generateDetailedMermaidDiagrams(rawJava, project.name),
+          confidence: 0.95,
           java_code: rawJava,
           rust_code: latestRust,
         } as any;
       }
+
+      let finalImpactAudit = normalizeImpactAudit(project.impactAudit);
+      if (!finalImpactAudit && rawJava.trim()) {
+        const fileName = primarySource?.fileName || `${project.name}.java`;
+        finalImpactAudit = detectJavaImpactAudit(rawJava, fileName);
+      }
+
       let finalBlueprint = project.blueprint;
       if (finalBlueprint && finalBlueprint.steps) {
         finalBlueprint = {
@@ -567,7 +593,7 @@ ${configImpactNotes || "- Restore application.properties / application.yml confi
         ...mapped,
         uploaded_sources: project.uploadedSources,
         core_audit: finalCoreAudit,
-        impact_audit: project.impactAudit,
+        impact_audit: finalImpactAudit,
         readiness_assessment: project.readinessAssessment,
         blueprint: finalBlueprint,
         transformations: project.transformations,

@@ -1,5 +1,4 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import React from "react";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -40,7 +39,7 @@ describe("Dashboard Project Deletion Flow", () => {
   });
 
   it("clicking the delete button opens confirmation modal and confirms removal", async () => {
-    const testProject = await createProject({
+    await createProject({
       name: "Trash Modal Test",
       repo_url: "https://github.com/acme/trash-test",
       javaCode: "public class TrashTest {}",

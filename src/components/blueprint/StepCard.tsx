@@ -31,6 +31,8 @@ import {
 } from "lucide-react";
 import { useUiStore } from "../../store/useUiStore";
 import { getProjectSourceCode } from "../../api/project";
+import { saveTransformedCode, getTransformedCode } from "../../api/transform";
+import { updateBlueprintStep } from "../../api/review";
 import {
   executeUnifiedMigration,
   retryVerification,
@@ -86,8 +88,13 @@ export const StepCard: React.FC<StepCardProps> = ({
       if (cachedCtx.generated_rust_source) {
         setTransformedRustCode(cachedCtx.generated_rust_source);
       }
+    } else {
+      const stored = getTransformedCode(projectId, step.id);
+      if (stored) {
+        setTransformedRustCode(stored);
+      }
     }
-  }, [projectId]);
+  }, [projectId, step.id]);
 
   const codeEntries = Object.entries(sourceCodeMap);
   let rawJavaCode = sourceCodeMap[step.file_or_module];
@@ -163,6 +170,8 @@ export const StepCard: React.FC<StepCardProps> = ({
       setTransformedRustCode(context.generated_rust_source);
       setMigrationContext(context);
       step.target_pattern = context.generated_rust_source;
+      saveTransformedCode(projectId, step.id, context.generated_rust_source);
+      updateBlueprintStep(projectId, step.id, { target_pattern: context.generated_rust_source }).catch(() => {});
     } catch (err) {
       setTransformError(err instanceof Error ? err.message : "Unified migration pipeline failed");
     } finally {

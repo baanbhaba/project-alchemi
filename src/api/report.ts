@@ -4,12 +4,43 @@ import { fetchApi } from "./client";
 import { getCoreAudit, getImpactAudit, getProjectSourceCode, generateDetailedMermaidDiagrams } from "./project";
 import { getBlueprint } from "./review";
 import { getTransformedCode } from "./transform";
+import { getMigrationContext } from "./orchestrator";
 import { sanitizeRustCode } from "../utils/exportRustCode";
+import { generateRustCodeFromJava } from "../server/rustGenerator";
 
 export const getMigrationReport = async (projectId: string): Promise<MigrationReport> => {
   try {
     const data = await fetchApi<MigrationReport>(`/projects/${projectId}/report`);
-    return MigrationReportSchema.parse(data);
+    const parsed = MigrationReportSchema.parse(data);
+
+    // Ensure entries have transformed rust code if backend returned blank or placeholder
+    const ctx = getMigrationContext(projectId);
+    const ctxRust = ctx?.generated_rust_source || "";
+    const srcMap = getProjectSourceCode(projectId);
+
+    parsed.entries = parsed.entries.map((entry, idx) => {
+      const sId = `step-${idx + 1}`;
+      const accumulatedCode = getTransformedCode(projectId, sId);
+      let rustCode = entry.rust_code;
+      if (!rustCode || rustCode.trim().length === 0 || rustCode.includes("Click 'Transform Step'")) {
+        rustCode = accumulatedCode.trim() || ctxRust.trim() || generateRustCodeFromJava(entry.java_code || Object.values(srcMap)[0] || "");
+      }
+      if (rustCode !== entry.rust_code) {
+        const javaLines = (entry.java_code || "").split("\n");
+        const rustLines = rustCode.split("\n");
+        const targetFile = entry.unit.endsWith(".java") ? entry.unit.replace(/\.java$/, ".rs") : `${entry.unit}.rs`;
+        const diffHeader = `--- a/${entry.unit}\n+++ b/${targetFile}\n@@ -1,${javaLines.length} +1,${rustLines.length} @@\n`;
+        const diffBody = javaLines.map((l) => `- ${l}`).join("\n") + "\n" + rustLines.map((l) => `+ ${l}`).join("\n");
+        return {
+          ...entry,
+          rust_code: rustCode,
+          diff: `${diffHeader}${diffBody}`,
+        };
+      }
+      return entry;
+    });
+
+    return parsed;
   } catch {
     console.warn(`[MOCK_FALLBACK] Backend /projects/${projectId}/report endpoint unavailable; building synced report from domain APIs.`);
 
@@ -55,17 +86,25 @@ export const getMigrationReport = async (projectId: string): Promise<MigrationRe
     const reportEntries = blueprint.steps.map((s) => {
       const rawJava = srcMap[s.file_or_module] || Object.values(srcMap)[0] || `public class ${s.file_or_module.replace(/[^a-zA-Z0-9]/g, "")} {}`;
       const accumulatedCode = getTransformedCode(projectId, s.id);
+      const ctx = getMigrationContext(projectId);
+      const ctxRust = ctx?.generated_rust_source || "";
 
       const isGenericPlaceholder =
         !s.target_pattern ||
         s.target_pattern.includes("Click 'Transform Step'") ||
         (s.target_pattern.includes("pub struct ") && s.target_pattern.includes("Handler {\n"));
 
-      const rustCode = accumulatedCode.trim()
+      let rustCode = accumulatedCode.trim()
         ? accumulatedCode
+        : ctxRust.trim()
+        ? ctxRust
         : !isGenericPlaceholder
         ? sanitizeRustCode(s.target_pattern)
         : "";
+
+      if (!rustCode || rustCode.trim().length === 0 || rustCode.includes("Click 'Transform Step'")) {
+        rustCode = generateRustCodeFromJava(rawJava);
+      }
 
       const javaLines = rawJava.split("\n");
       const rustLines = rustCode.split("\n");
