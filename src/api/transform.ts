@@ -11,10 +11,29 @@ export interface TransformationResponse {
 
 let liveTransformations: Record<string, Record<string, string>> = {};
 
+const safeStorage = {
+  getItem: (key: string): string | null => {
+    try {
+      if (typeof window !== "undefined") {
+        return window.localStorage?.getItem(key) || window.sessionStorage?.getItem(key) || null;
+      }
+    } catch {}
+    return null;
+  },
+  setItem: (key: string, val: string): void => {
+    try {
+      if (typeof window !== "undefined") {
+        window.localStorage?.setItem(key, val);
+        window.sessionStorage?.setItem(key, val);
+      }
+    } catch {}
+  },
+};
+
 export const getTransformedCode = (projectId: string, stepId?: string): string => {
   try {
     const key = `ema_transformed_${projectId}`;
-    const raw = localStorage.getItem(key) || sessionStorage.getItem(key) || "{}";
+    const raw = safeStorage.getItem(key) || "{}";
     const existing = JSON.parse(raw);
     if (stepId) return existing[stepId] || liveTransformations[projectId]?.[stepId] || "";
     return Object.values(existing).join("\n\n") || Object.values(liveTransformations[projectId] || {}).join("\n\n");
@@ -28,11 +47,10 @@ export const saveTransformedCode = (projectId: string, stepId: string, code: str
   liveTransformations[projectId][stepId] = code;
   try {
     const key = `ema_transformed_${projectId}`;
-    const raw = localStorage.getItem(key) || sessionStorage.getItem(key) || "{}";
+    const raw = safeStorage.getItem(key) || "{}";
     const existing = JSON.parse(raw);
     existing[stepId] = code;
-    localStorage.setItem(key, JSON.stringify(existing));
-    sessionStorage.setItem(key, JSON.stringify(existing));
+    safeStorage.setItem(key, JSON.stringify(existing));
   } catch {}
 };
 

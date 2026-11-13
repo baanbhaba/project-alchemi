@@ -1,6 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { randomUUID } from "node:crypto";
-import { prisma } from "../../src/lib/prisma";
 import { hashPassword, verifyPassword } from "../../src/lib/password";
 
 /**
@@ -18,7 +17,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).end("Method Not Allowed");
   }
 
-  const { username, password } = req.body || {};
+  let body = req.body;
+  if (typeof body === "string") {
+    try {
+      body = JSON.parse(body);
+    } catch {}
+  }
+
+  const username = body?.username || body?.email;
+  const password = body?.password;
 
   if (!username || typeof username !== "string" || !password || typeof password !== "string") {
     return res.status(400).json({ success: false, error: "Username and password are required" });
@@ -53,6 +60,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
+    const { prisma } = await import("../../src/lib/prisma");
     let user = await prisma.user.findFirst({
       where: { OR: [{ username: cleanUser }, { email: cleanUser }] },
     });

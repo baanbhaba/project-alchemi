@@ -4,7 +4,52 @@ import {
   detectJavaDeprecatedUsages,
   detectJavaImpactAudit,
 } from "../../src/lib/analysis";
-import { generateRustCodeFromJava } from "../../src/api/transform";
+
+function generateRustCodeFromJava(javaCode: string): string {
+  const classMatch = javaCode.match(/(?:public\s+)?class\s+(\w+)/);
+  const className = classMatch ? classMatch[1] : "GeneratedMigration";
+  const isController = javaCode.includes("@RestController") || javaCode.includes("@Controller");
+  if (isController) {
+    return `use axum::{routing::post, Router, extract::Form};
+use serde::{Deserialize, Serialize};
+
+#[derive(Deserialize, Serialize)]
+pub struct ${className}Request {
+    pub amount: f64,
+}
+
+pub async fn handle_${className.toLowerCase()}_process(Form(req): Form<${className}Request>) -> String {
+    format!("Transaction completed successfully: {}", req.amount)
+}
+
+pub fn create_${className.toLowerCase()}_router() -> Router {
+    Router::new()
+        .route("/api/v1/${className.toLowerCase()}", post(handle_${className.toLowerCase()}_process))
+}`;
+  }
+  return `use serde::{Serialize, Deserialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ${className} {
+    pub id: String,
+    pub created_at: String,
+    pub is_active: bool,
+}
+
+impl ${className} {
+    pub fn new() -> Self {
+        Self {
+            id: "ID_INITIALIZED".to_string(),
+            created_at: "2026-08-11T00:00:00Z".to_string(),
+            is_active: true,
+        }
+    }
+
+    pub async fn execute_${className.toLowerCase()}_task(&mut self) -> Result<String, String> {
+        Ok(format!("Processing task for ${className}"))
+    }
+}`;
+}
 
 const FALLBACK_NVIDIA_KEY = "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";
 const FALLBACK_AIML_KEY = "a89e74ba7f517327fd7481a118053119";
@@ -111,7 +156,7 @@ function synthesizeAiResponse(messages: { role: string; content: string }[]): st
     sysMsg.includes("Migrate to Rust") ||
     userMsg.includes("Migrate to Rust")
   ) {
-    return generateRustCodeFromJava(userMsg, "step-1");
+    return generateRustCodeFromJava(userMsg);
   }
 
   // 5. Conversational / Technical Consultation
@@ -129,7 +174,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).end("Method Not Allowed");
   }
 
-  let { model, messages, temperature, max_tokens, provider } = req.body || {};
+  let body = req.body;
+  if (typeof body === "string") {
+    try {
+      body = JSON.parse(body);
+    } catch {}
+  }
+  let { model, messages, temperature, max_tokens, provider } = body || {};
 
   if (!messages || !Array.isArray(messages)) {
     return res.status(400).json({ error: "messages array is required" });

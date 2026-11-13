@@ -37,10 +37,29 @@ let sourceCodeStore: Record<string, string> = {};
 let liveCoreAudits: Record<string, CoreAudit> = {};
 let liveImpactAudits: Record<string, ImpactAudit> = {};
 
+const safeStorage = {
+  getItem: (key: string): string | null => {
+    try {
+      if (typeof window !== "undefined") {
+        return window.localStorage?.getItem(key) || window.sessionStorage?.getItem(key) || null;
+      }
+    } catch {}
+    return null;
+  },
+  setItem: (key: string, val: string): void => {
+    try {
+      if (typeof window !== "undefined") {
+        window.localStorage?.setItem(key, val);
+        window.sessionStorage?.setItem(key, val);
+      }
+    } catch {}
+  },
+};
+
 const getPersistedSourceCode = (projectId: string): string => {
   if (sourceCodeStore[projectId]) return sourceCodeStore[projectId];
   try {
-    const raw = localStorage.getItem("ema_source_code_store") || sessionStorage.getItem("ema_source_code_store");
+    const raw = safeStorage.getItem("ema_source_code_store");
     if (raw) {
       const parsed = JSON.parse(raw);
       if (parsed[projectId]) {
@@ -55,11 +74,10 @@ const getPersistedSourceCode = (projectId: string): string => {
 const savePersistedSourceCode = (projectId: string, code: string) => {
   sourceCodeStore[projectId] = code;
   try {
-    const raw = localStorage.getItem("ema_source_code_store") || sessionStorage.getItem("ema_source_code_store") || "{}";
+    const raw = safeStorage.getItem("ema_source_code_store") || "{}";
     const parsed = JSON.parse(raw);
     parsed[projectId] = code;
-    localStorage.setItem("ema_source_code_store", JSON.stringify(parsed));
-    sessionStorage.setItem("ema_source_code_store", JSON.stringify(parsed));
+    safeStorage.setItem("ema_source_code_store", JSON.stringify(parsed));
   } catch {}
 };
 
