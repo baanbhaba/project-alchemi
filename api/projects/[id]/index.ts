@@ -576,8 +576,26 @@ ${configImpactNotes || "- Restore application.properties / application.yml confi
     }
 
     if (req.method === "DELETE") {
-      await prisma.project.delete({ where: { id } });
-      return res.status(200).json({ success: true });
+      try {
+        await prisma.auditHistory.deleteMany({ where: { projectId: id } }).catch(() => null);
+        await prisma.rustExport.deleteMany({ where: { projectId: id } }).catch(() => null);
+        await prisma.transformation.deleteMany({ where: { projectId: id } }).catch(() => null);
+        await prisma.blueprintStep.deleteMany({ where: { blueprint: { projectId: id } } }).catch(() => null);
+        await prisma.blueprint.deleteMany({ where: { projectId: id } }).catch(() => null);
+        await prisma.uploadedSource.deleteMany({ where: { projectId: id } }).catch(() => null);
+        await prisma.coreAudit.deleteMany({ where: { projectId: id } }).catch(() => null);
+        await prisma.impactAudit.deleteMany({ where: { projectId: id } }).catch(() => null);
+        await prisma.readinessAssessment.deleteMany({ where: { projectId: id } }).catch(() => null);
+        await prisma.migrationReport.deleteMany({ where: { projectId: id } }).catch(() => null);
+        await prisma.project.delete({ where: { id } }).catch((err) => {
+          if (err?.code === "P2025") return null;
+          throw err;
+        });
+        return res.status(200).json({ success: true });
+      } catch (delErr: any) {
+        console.error(`Failed to delete project ${id}:`, delErr);
+        return res.status(500).json({ error: "Failed to delete project", detail: delErr?.message });
+      }
     }
 
     res.setHeader("Allow", ["GET", "DELETE"]);

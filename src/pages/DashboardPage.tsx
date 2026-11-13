@@ -12,6 +12,7 @@ import { ErrorState } from "../components/common/ErrorState";
 import { usePermissions } from "../lib/usePermissions";
 import { FileTreeView } from "../components/common/FileTreeView";
 import { extractZip, type ZipExtractionResult } from "../lib/zipExtractor";
+import type { ProjectSummary } from "../types/contracts";
 import { SpotlightCard } from "../components/ui/SpotlightCard";
 import { ShimmerButton } from "../components/ui/ShimmerButton";
 import { MarqueeRibbon } from "../components/ui/MarqueeRibbon";
@@ -26,6 +27,7 @@ export const DashboardPage: React.FC = () => {
   const [zipResult, setZipResult] = useState<ZipExtractionResult | null>(null);
   const [selectedZipFile, setSelectedZipFile] = useState<string | null>(null);
   const [isExtractingZip, setIsExtractingZip] = useState(false);
+  const [projectToDelete, setProjectToDelete] = useState<ProjectSummary | null>(null);
 
   const queryClient = useQueryClient();
 
@@ -61,12 +63,29 @@ export const DashboardPage: React.FC = () => {
 
   const deleteMutation = useMutation({
     mutationFn: deleteProject,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["projects"] });
-      toast.success("Project removed");
+    onMutate: async (deletedId: string) => {
+      await queryClient.cancelQueries({ queryKey: ["projects"] });
+      const previousProjects = queryClient.getQueryData<ProjectSummary[]>(["projects"]);
+      if (previousProjects) {
+        queryClient.setQueryData<ProjectSummary[]>(
+          ["projects"],
+          previousProjects.filter((p) => p.id !== deletedId)
+        );
+      }
+      return { previousProjects };
     },
-    onError: (err) => {
+    onError: (err, _deletedId, context) => {
+      if (context?.previousProjects) {
+        queryClient.setQueryData(["projects"], context.previousProjects);
+      }
       toast.error(err instanceof Error ? err.message : "Failed to remove project");
+    },
+    onSuccess: () => {
+      toast.success("Project removed successfully");
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["projects"] });
+      setProjectToDelete(null);
     },
   });
 
@@ -283,12 +302,10 @@ export const DashboardPage: React.FC = () => {
                     onClick={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
-                      if (confirm(`Remove project "${project.name}"?`)) {
-                        deleteMutation.mutate(project.id);
-                      }
+                      setProjectToDelete(project);
                     }}
-                    disabled={deleteMutation.isPending}
-                    className="p-1.5 bg-zinc-100 dark:bg-zinc-800 hover:bg-rose-600 hover:text-white text-zinc-600 dark:text-zinc-400 border-2 border-[#181c24] dark:border-[#30363d] shadow-[1px_1px_0px_#181c24] dark:shadow-[1px_1px_0px_#010409] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none transition-all cursor-pointer rounded-md"
+                    disabled={deleteMutation.isPending && projectToDelete?.id === project.id}
+                    className="p-1.5 bg-zinc-100 dark:bg-zinc-800 hover:bg-rose-600 hover:text-white text-zinc-600 dark:text-zinc-400 border-2 border-[#181c24] dark:border-[#30363d] shadow-[1px_1px_0px_#181c24] dark:shadow-[1px_1px_0px_#010409] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none transition-all cursor-pointer rounded-md disabled:opacity-50"
                     title="Remove Project"
                     aria-label={`Remove project ${project.name}`}
                   >
@@ -451,6 +468,59 @@ export const DashboardPage: React.FC = () => {
             </p>
           </div>
         </form>
+      </Modal>
+
+      {/* Delete Confirmation Modal */}
+      <Modal
+        isOpen={!!projectToDelete}
+        onClose={() => {
+          if (!deleteMutation.isPending) {
+            setProjectToDelete(null);
+          }
+        }}
+        title="Delete Project"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-zinc-700 dark:text-zinc-300">
+            Are you sure you want to delete <strong className="text-zinc-950 dark:text-white font-mono">{projectToDelete?.name}</strong>?
+          </p>
+          <div className="p-3 bg-rose-50 dark:bg-rose-950/30 border-2 border-rose-200 dark:border-rose-900/50 rounded-xs text-xs text-rose-800 dark:text-rose-300">
+            This action cannot be undone. All source code, blueprints, transformations, and audit logs for this project will be permanently erased.
+          </div>
+
+          <div className="flex justify-end space-x-3 pt-3 border-t-2 border-zinc-200 dark:border-zinc-800">
+            <button
+              type="button"
+              onClick={() => setProjectToDelete(null)}
+              disabled={deleteMutation.isPending}
+              className="px-4 py-2 border-2 border-[#181c24] dark:border-[#30363d] bg-white dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 text-xs font-bold shadow-[2px_2px_0px_#181c24] dark:shadow-[2px_2px_0px_#010409] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors cursor-pointer disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (projectToDelete) {
+                  deleteMutation.mutate(projectToDelete.id);
+                }
+              }}
+              disabled={deleteMutation.isPending}
+              className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold border-2 border-[#181c24] dark:border-[#30363d] shadow-[2px_2px_0px_#181c24] dark:shadow-[2px_2px_0px_#010409] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none flex items-center space-x-1.5 transition-all cursor-pointer disabled:opacity-50"
+            >
+              {deleteMutation.isPending ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>Deleting...</span>
+                </>
+              ) : (
+                <>
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Delete Project</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
       </Modal>
     </div>
   );

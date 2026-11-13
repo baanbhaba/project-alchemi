@@ -85,7 +85,13 @@ const savePersistedSourceCode = (projectId: string, code: string) => {
 export const getProjects = async (): Promise<ProjectSummary[]> => {
   try {
     const data = await fetchApi<ProjectSummary[]>("/projects");
-    if (Array.isArray(data) && data.length > 0) {
+    if (Array.isArray(data)) {
+      const remoteIds = new Set(data.map((p) => p.id));
+      for (const id of Object.keys(localProjectsStore)) {
+        if (!remoteIds.has(id)) {
+          delete localProjectsStore[id];
+        }
+      }
       data.forEach((p) => { localProjectsStore[p.id] = p; });
       return data.map((item) => ProjectSummarySchema.parse(item));
     }
@@ -189,13 +195,35 @@ export const deleteProject = async (projectId: string): Promise<boolean> => {
   delete liveCoreAudits[projectId];
   delete liveImpactAudits[projectId];
 
+  try {
+    const raw = safeStorage.getItem("ema_source_code_store");
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      delete parsed[projectId];
+      safeStorage.setItem("ema_source_code_store", JSON.stringify(parsed));
+    }
+    if (typeof sessionStorage !== "undefined") {
+      sessionStorage.removeItem(`ema_blueprint_${projectId}`);
+      sessionStorage.removeItem(`ema_transformed_${projectId}`);
+      sessionStorage.removeItem(`ema_migration_artifact_${projectId}`);
+      if (sessionStorage.getItem("ema_selected_project_id") === projectId) {
+        sessionStorage.removeItem("ema_selected_project_id");
+      }
+    }
+    if (typeof localStorage !== "undefined") {
+      localStorage.removeItem(`ema_blueprint_${projectId}`);
+      localStorage.removeItem(`ema_transformed_${projectId}`);
+      localStorage.removeItem(`ema_migration_artifact_${projectId}`);
+    }
+  } catch {}
+
   if (isDevMode) return true;
 
   try {
     await fetchApi<{ success: boolean }>(`/projects/${projectId}`, { method: "DELETE" });
     return true;
-  } catch {
-    console.warn(`[OFFLINE] Backend DELETE /projects/${projectId} unavailable — removed from local store.`);
+  } catch (err) {
+    console.warn(`[OFFLINE] Backend DELETE /projects/${projectId} unavailable or failed:`, err);
     return true;
   }
 };
