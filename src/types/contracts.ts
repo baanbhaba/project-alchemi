@@ -116,6 +116,7 @@ export const ImpactAuditSchema = z.object({
   dependency_risks: z.array(DependencyRiskSchema),
   concurrency_and_state_risks: z.array(ConcurrencyAndStateRiskSchema).optional(),
   blast_radius: z.array(BlastRadiusItemSchema),
+  diagrams: z.array(DiagramSchema).optional(),
   rollout_recommendation: RolloutRecommendationSchema.optional(),
   confidence: z.number().min(0).max(1),
 });

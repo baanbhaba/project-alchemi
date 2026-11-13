@@ -35,8 +35,9 @@ export async function completeJson<T>(
           { role: "user", content: userContent },
         ],
         temperature: opts?.temperature ?? 0.2,
-        max_tokens: opts?.maxTokens ?? 1600,
+        max_tokens: opts?.maxTokens ?? 4096,
       }),
+      signal: typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(75000) : undefined,
     });
 
     if (!response.ok) {
@@ -46,7 +47,7 @@ export async function completeJson<T>(
     }
 
     const data: any = await response.json();
-    const content: string | undefined = data?.choices?.[0]?.message?.content;
+    const content: string | undefined = data?.choices?.[0]?.message?.content || data?.choices?.[0]?.message?.reasoning_content;
     if (!content) {
       console.error("[LLM SERVER ERROR] Upstream API returned empty choices or message content.");
       throw new Error("Upstream AI API returned empty message content");

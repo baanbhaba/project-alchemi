@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Bolt, Database, Sliders, TriangleAlert, ChevronDown, ChevronRight, Layers, ScanText, MoveRight } from "lucide-react";
+import { Bolt, Database, Sliders, TriangleAlert, ChevronDown, ChevronRight, Layers, ScanText, MoveRight, Network } from "lucide-react";
 import { getImpactAudit, getProjectDetails } from "../api/client";
 import { Card } from "../components/common/Card";
 import { Badge } from "../components/common/Badge";
 import { LoadingSkeleton } from "../components/common/LoadingSkeleton";
 import { ErrorState } from "../components/common/ErrorState";
+import { TopologyGraph } from "../components/common/TopologyGraph";
 
 export const ImpactAuditPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -240,7 +241,34 @@ export const ImpactAuditPage: React.FC = () => {
         </div>
       </Card>
 
-      {/* 4. Blast Radius Section */}
+      {/* 4. Blast Radius Visual Topology Map */}
+      {impact.diagrams && impact.diagrams.length > 0 && (
+        <Card
+          title={
+            <div className="flex items-center space-x-2">
+              <Network className="w-3.5 h-3.5 text-amber-500" />
+              <span>Blast Radius & Risk Propagation Map</span>
+            </div>
+          }
+          subtitle="Visual flowchart and 3D topology tracing legacy bottlenecks to memory-safe Rust Axum guarantees"
+        >
+          <div className="space-y-4">
+            {impact.diagrams
+              .filter((d) => d.type === "blast_radius" || d.type === "component")
+              .slice(0, 2)
+              .map((diag, idx) => (
+                <div key={idx}>
+                  <TopologyGraph
+                    mermaidChart={diag.content}
+                    id={`impact-diag-${idx}`}
+                  />
+                </div>
+              ))}
+          </div>
+        </Card>
+      )}
+
+      {/* 5. Blast Radius Section */}
       <Card
         title={
           <div className="flex items-center space-x-2">

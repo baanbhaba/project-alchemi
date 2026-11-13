@@ -1,7 +1,7 @@
 import type { MigrationReport, CoreAudit, ImpactAudit } from "../types/contracts";
 import { MigrationReportSchema } from "../types/contracts";
 import { fetchApi } from "./client";
-import { getCoreAudit, getImpactAudit, getProjectSourceCode } from "./project";
+import { getCoreAudit, getImpactAudit, getProjectSourceCode, generateDetailedMermaidDiagrams } from "./project";
 import { getBlueprint } from "./review";
 import { generateRustCodeFromJava, getTransformedCode } from "./transform";
 import { sanitizeRustCode } from "../utils/exportRustCode";
@@ -33,12 +33,13 @@ export const getMigrationReport = async (projectId: string): Promise<MigrationRe
     const codeFiles = Object.keys(srcMap);
     const projName = codeFiles[0] ? codeFiles[0].split("/").pop() || projectId : projectId;
 
+    const firstFileCode = Object.values(srcMap)[0] || "";
     const finalCoreAudit: CoreAudit = coreAudit || {
       architecture_summary: `Architecture Audit for Project '${projName}'`,
       detected_stack: [{ technology: "Java", version: "8", status: "deprecated" }],
       deprecated_usages: [],
       dependency_graph: { nodes: [projName], edges: [] },
-      diagrams: [{ type: "component", format: "mermaid", content: `graph TD\n    A[${projName}] --> B[Target Rust Axum Service]` }],
+      diagrams: generateDetailedMermaidDiagrams(firstFileCode, projName),
       confidence: 0.95,
     };
 

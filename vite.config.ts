@@ -1,6 +1,8 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+import { generateRustCodeFromJava } from "./src/server/rustGenerator.ts";
+import { generateDetailedMermaidDiagrams } from "./src/lib/analysis.ts";
 
 function aiDevMiddleware() {
   return {
@@ -28,55 +30,50 @@ function aiDevMiddleware() {
               if (apiKey) {
                 try {
                   const controller = new AbortController();
-                  const timer = setTimeout(() => controller.abort(), 25000);
+                  const timer = setTimeout(() => controller.abort(), 75000);
                   const upstream = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
                     method: "POST",
                     headers: {
                       Authorization: `Bearer ${apiKey}`,
                       "Content-Type": "application/json",
-                      Accept: "text/event-stream",
+                      Accept: "application/json",
                     },
                     body: JSON.stringify({
                       model,
                       messages,
                       temperature: 0.1,
-                      max_tokens: 1200,
-                      stream: true,
+                      max_tokens: 4096,
+                      stream: false,
                     }),
                     signal: controller.signal,
                   });
                   clearTimeout(timer);
                   if (upstream.ok) {
-                    const rawText = await upstream.text();
-                    let accumulated = "";
-                    const lines = rawText.split("\n");
-                    for (const line of lines) {
-                      const trimmed = line.trim();
-                      if (!trimmed || !trimmed.startsWith("data:")) continue;
-                      const dataStr = trimmed.slice(5).trim();
-                      if (dataStr === "[DONE]") continue;
-                      try {
-                        const json = JSON.parse(dataStr);
-                        const delta = json.choices?.[0]?.delta?.content || "";
-                        accumulated += delta;
-                      } catch {}
-                    }
-                    if (accumulated.trim()) {
+                    const json: any = await upstream.json().catch(() => null);
+                    if (json && json.choices?.[0]?.message) {
+                      const choice = json.choices[0];
+                      let rawContent = choice.message.content || choice.message.reasoning_content || "";
+                      let cleanContent = rawContent
+                        .replace(/^```(?:rust|json)?\s*/i, "")
+                        .replace(/\s*```$/, "")
+                        .trim();
+
                       res.setHeader("Content-Type", "application/json");
                       res.statusCode = 200;
                       res.end(
                         JSON.stringify({
-                          id: `chatcmpl-${Date.now()}`,
+                          id: json.id || `chatcmpl-${Date.now()}`,
                           object: "chat.completion",
-                          created: Math.floor(Date.now() / 1000),
-                          model,
+                          created: json.created || Math.floor(Date.now() / 1000),
+                          model: json.model || model,
                           choices: [
                             {
                               index: 0,
-                              message: { role: "assistant", content: accumulated },
-                              finish_reason: "stop",
+                              message: { role: "assistant", content: cleanContent },
+                              finish_reason: choice.finish_reason || "stop",
                             },
                           ],
+                          usage: json.usage,
                         })
                       );
                       return;
@@ -104,16 +101,11 @@ function aiDevMiddleware() {
                     },
                   ],
                   dependency_graph: { nodes: classNames.length ? classNames : [primaryClass], edges: [] },
-                  diagrams: [
-                    {
-                      type: "component",
-                      format: "mermaid",
-                      content: `graph TD\n  Client --> ${primaryClass}\n  ${primaryClass} --> RustAxum`,
-                    },
-                  ],
+                  diagrams: generateDetailedMermaidDiagrams(userMsg, primaryClass),
                   confidence: 0.95,
                 });
               } else if (sysMsg.includes("Impact Analysis Agent") || sysMsg.includes("ImpactAudit")) {
+                const diagrams = generateDetailedMermaidDiagrams(userMsg, "Main.java");
                 content = JSON.stringify({
                   api_surface: [
                     {
@@ -132,6 +124,7 @@ function aiDevMiddleware() {
                   blast_radius: [
                     { change: "Migrate endpoints", affected_files: ["Main.java"], severity: "medium" },
                   ],
+                  diagrams,
                   confidence: 0.92,
                 });
               } else if (sysMsg.includes("Blueprint Agent") || sysMsg.includes("Blueprint")) {
@@ -175,9 +168,7 @@ function aiDevMiddleware() {
                 sysMsg.includes("Rust Axum") ||
                 userMsg.includes("Migrate to Rust")
               ) {
-                const classMatch = userMsg.match(/(?:public\s+)?class\s+([A-Za-z0-9_]+)/) || userMsg.match(/class\s+([A-Za-z0-9_]+)/);
-                const className = classMatch ? classMatch[1] : "MigratedService";
-                content = `#[derive(Debug, Clone)]\npub struct ${className} {\n    pub name: String,\n}\n\nimpl ${className} {\n    pub fn new() -> Self {\n        Self {\n            name: "${className}".to_string(),\n        }\n    }\n\n    pub fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {\n        println!("Running ${className} service...");\n        Ok(())\n    }\n}\n\nfn main() -> Result<(), Box<dyn std::error::Error>> {\n    println!("Starting ${className} service...");\n    let mut app = ${className}::new();\n    app.run()?;\n    println!("Execution completed successfully.");\n    Ok(())\n}`;
+                content = generateRustCodeFromJava(userMsg);
               } else {
                 content =
                   "ALCHEMI Migration AI Engine: Inspection of input Java source completed successfully.";

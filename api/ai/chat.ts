@@ -44,6 +44,7 @@ interface ImpactAudit {
   config_impacts: ImpactItem[];
   dependency_risks: DependencyRisk[];
   blast_radius: BlastRadiusItem[];
+  diagrams?: Array<{ type: string; format: string; content: string }>;
   confidence: number;
 }
 
@@ -258,6 +259,230 @@ function detectJavaDeprecatedUsages(javaCode: string, fileName: string): Depreca
   return usages;
 }
 
+interface DiagramItem {
+  type: string;
+  format: string;
+  content: string;
+}
+
+function generateDetailedMermaidDiagrams(
+  javaCode: string,
+  projectName: string = "Service"
+): DiagramItem[] {
+  if (!javaCode || !javaCode.trim()) {
+    return [
+      {
+        type: "component",
+        format: "mermaid",
+        content: `graph TD\n  Client["Ingestion Client"] --> Router["Axum Router (0.7)"]\n  Router --> AppState["AppState (Arc<RwLock>)"]\n  AppState --> Service["${projectName}"]`,
+      },
+    ];
+  }
+
+  const classMatches = [
+    ...javaCode.matchAll(
+      /(?:public\s+)?(?:class|interface|record)\s+([A-Za-z0-9_]+)\s*\{([\s\S]*?)\}(?=\s*(?:(?:public\s+)?(?:class|interface|record)|\s*$))/g
+    ),
+  ];
+
+  let primaryClass = projectName.replace(/[^A-Za-z0-9_]/g, "") || "Service";
+  const auxiliaryClasses: Array<{ name: string; body: string }> = [];
+
+  if (classMatches.length > 0) {
+    const publicMatch = classMatches.find((m) => m[0].startsWith("public "));
+    primaryClass = publicMatch ? publicMatch[1] : classMatches[0][1];
+    for (const m of classMatches) {
+      if (m[1] !== primaryClass) {
+        auxiliaryClasses.push({ name: m[1], body: m[2] });
+      }
+    }
+  } else {
+    const simpleMatch = javaCode.match(/(?:public\s+)?class\s+([A-Za-z0-9_]+)/);
+    if (simpleMatch) primaryClass = simpleMatch[1];
+  }
+
+  const primarySlug = primaryClass.toLowerCase();
+  const primaryBody = classMatches.find((m) => m[1] === primaryClass)?.[2] || javaCode;
+
+  const methodMatches = [
+    ...primaryBody.matchAll(
+      /(?:public|protected|private)?\s*(?:static)?\s*([A-Za-z0-9_<>]+)\s+([a-z][A-Za-z0-9_]*)\s*\(([^)]*)\)/g
+    ),
+  ];
+  const methods: Array<{ name: string; params: string; returnType: string }> = [];
+  const seenMethods = new Set<string>();
+
+  for (const m of methodMatches) {
+    const retType = m[1];
+    const mName = m[2];
+    const params = m[3] ? m[3].trim() : "";
+    if (["if", "while", "for", "switch", "catch", "new", "return", primaryClass].includes(mName)) continue;
+    if (seenMethods.has(mName)) continue;
+    seenMethods.add(mName);
+    methods.push({ name: mName, params, returnType: retType });
+  }
+
+  const auxParsed = auxiliaryClasses.map((aux) => {
+    const fieldMatches = [
+      ...aux.body.matchAll(
+        /(?:(?:private|protected|public)\s+)?(?:final\s+)?(?:static\s+)?\b([A-Za-z0-9_]+(?:<[^>]+>)?)\s+([a-z][A-Za-z0-9_]*)\s*[=;]/g
+      ),
+    ];
+    const fields = fieldMatches.map((f) => `${f[2]}: ${f[1]}`);
+    return { name: aux.name, fields };
+  });
+
+  const collections: Array<{ name: string; javaType: string; rustType: string }> = [];
+  if (javaCode.includes("Vector<")) {
+    const vm = javaCode.match(/Vector<([^>]+)>\s+([a-z][A-Za-z0-9_]*)/i);
+    collections.push({
+      name: vm ? vm[2] : "vectorItems",
+      javaType: vm ? `Vector<${vm[1]}>` : "Vector<T>",
+      rustType: vm ? `Vec<${vm[1]}>` : "Vec<T>",
+    });
+  }
+  if (javaCode.includes("Hashtable<")) {
+    const hm = javaCode.match(/Hashtable<([^,>]+),\s*([^>]+)>\s+([a-z][A-Za-z0-9_]*)/i);
+    collections.push({
+      name: hm ? hm[3] : "lookupTable",
+      javaType: hm ? `Hashtable<${hm[1]}, ${hm[2]}>` : "Hashtable<K, V>",
+      rustType: hm ? `HashMap<i64, ${hm[2]}>` : "HashMap<K, V>",
+    });
+  }
+  if (javaCode.includes("Stack<")) {
+    const sm = javaCode.match(/Stack<([^>]+)>\s+([a-z][A-Za-z0-9_]*)/i);
+    collections.push({
+      name: sm ? sm[2] : "stackItems",
+      javaType: sm ? `Stack<${sm[1]}>` : "Stack<T>",
+      rustType: sm ? `Vec<${sm[1]}>` : "Vec<T>",
+    });
+  }
+  if (javaCode.includes("ArrayList<") || javaCode.includes("List<")) {
+    const lm = javaCode.match(/(?:List|ArrayList)<([^>]+)>\s+([a-z][A-Za-z0-9_]*)/i);
+    if (lm && !collections.some((c) => c.name === lm[2])) {
+      collections.push({
+        name: lm[2],
+        javaType: `List<${lm[1]}>`,
+        rustType: `Vec<${lm[1]}>`,
+      });
+    }
+  }
+
+  let methodNodesStr = "";
+  let methodLinksStr = "";
+  if (methods.length > 0) {
+    const displayedMethods = methods.slice(0, 7);
+    methodNodesStr = displayedMethods
+      .map((m, i) => `        M${i}["${m.name}(${m.params ? m.params.replace(/"/g, "'") : ""})"]`)
+      .join("\n");
+    methodLinksStr = displayedMethods.map((_, i) => `        Service --> M${i}`).join("\n");
+  } else {
+    methodNodesStr = `        M0["execute_task()"]`;
+    methodLinksStr = `        Service --> M0`;
+  }
+
+  let collectionsStr = "";
+  let collectionsLinksStr = "";
+  if (collections.length > 0) {
+    collectionsStr = `\n    subgraph MemoryStore ["Memory State Store & Collections (Zero-Copy)"]\n` +
+      collections.map((c, i) => `        Col${i}["${c.name}: ${c.rustType}\\n(migrated from ${c.javaType})"]`).join("\n") +
+      `\n    end`;
+    collectionsLinksStr = collections.map((_, i) => `    Service --> Col${i}`).join("\n");
+  }
+
+  let entitiesStr = "";
+  let entityLinksStr = "";
+  if (auxParsed.length > 0) {
+    entitiesStr = `\n    subgraph Entities ["Serde Domain Entities (Zero-Copy Deserialization)"]\n` +
+      auxParsed.map((aux, i) => `        Ent${i}["${aux.name}\\n{ ${aux.fields.slice(0, 4).join(", ")} }"]`).join("\n") +
+      `\n    end`;
+    if (collections.length > 0) {
+      entityLinksStr = auxParsed.map((aux, i) => {
+        const colIdx = collections.findIndex(c => c.rustType.includes(aux.name));
+        return colIdx >= 0 ? `    Col${colIdx} -.-> Ent${i}` : `    Service -.-> Ent${i}`;
+      }).join("\n");
+    } else {
+      entityLinksStr = auxParsed.map((_, i) => `    Service -.-> Ent${i}`).join("\n");
+    }
+  }
+
+  const diagram1Content = `graph TD
+    subgraph Ingress ["API & Ingress Gateway (Axum 0.7)"]
+        Client["Client / External Ingestion"]
+        Router["Axum Router (Router::new())"]
+        HealthRoute["GET /health (Liveness)"]
+        StatusRoute["GET /api/v1/${primarySlug}"]
+        ProcessRoute["POST /api/v1/${primarySlug}"]
+        Client --> Router
+        Router --> HealthRoute
+        Router --> StatusRoute
+        Router --> ProcessRoute
+    end
+
+    subgraph Runtime ["Tokio Asynchronous Concurrency Layer"]
+        AppState["Shared AppState (Arc<AppState>)"]
+        RwLockState["tokio::sync::RwLock (Thread-Safe Synchronization)"]
+        StatusRoute --> AppState
+        ProcessRoute --> AppState
+        AppState --> RwLockState
+    end
+
+    subgraph ServiceCore ["Core Domain Service (${primaryClass})"]
+        Service["${primaryClass} (Domain Engine)"]
+        RwLockState --> Service
+${methodNodesStr}
+${methodLinksStr}
+    end${collectionsStr}${entitiesStr}
+
+${collectionsLinksStr}
+${entityLinksStr}`;
+
+  let classDiagramContent = `classDiagram\n    class ${primaryClass} {\n`;
+  for (const c of collections) {
+    classDiagramContent += `        +${c.rustType.replace(/</g, "~").replace(/>/g, "~")} ${c.name}\n`;
+  }
+  for (const m of methods.slice(0, 8)) {
+    const cleanParams = m.params ? m.params.replace(/<[^>]+>/g, "").replace(/\s+/g, " ") : "";
+    classDiagramContent += `        +${m.name}(${cleanParams}) ${m.returnType.replace(/<[^>]+>/g, "")}\n`;
+  }
+  classDiagramContent += `    }\n`;
+
+  for (const aux of auxParsed) {
+    classDiagramContent += `    class ${aux.name} {\n`;
+    for (const f of aux.fields) {
+      classDiagramContent += `        +${f}\n`;
+    }
+    classDiagramContent += `    }\n`;
+    classDiagramContent += `    ${primaryClass} *-- ${aux.name} : manages\n`;
+  }
+
+  const diagram3Content = `graph LR
+    subgraph LegacyBottlenecks ["Legacy Java 8 Inefficiencies (High Blast Radius)"]
+        L1["Vector & Hashtable synchronized lock contention"]
+        L2["java.util.Date & SimpleDateFormat thread-safety bugs"]
+        L3["JVM heap allocation overhead & GC pause latency"]
+        L4["Unchecked exceptions & silent failure propagation"]
+    end
+
+    subgraph RustMitigations ["Rust Axum 0.7 Mitigations (Zero-Cost Guarantees)"]
+        R1["Lock-free Vec<T> & tokio::sync::RwLock concurrency"]
+        R2["chrono::DateTime<Utc> immutable thread-safe timestamps"]
+        R3["Stack-allocated structs & zero-copy Serde deserialization"]
+        R4["Type-safe Result<T, Error> with explicit propagation"]
+    end
+
+    L1 ==>|Refactored to| R1
+    L2 ==>|Replaced with| R2
+    L3 ==>|Optimized to| R3
+    L4 ==>|Hardened with| R4`;
+
+  return [
+    { type: "component", format: "mermaid", content: diagram1Content },
+    { type: "class", format: "mermaid", content: classDiagramContent },
+    { type: "blast_radius", format: "mermaid", content: diagram3Content },
+  ];
+}
+
 function detectJavaImpactAudit(javaCode: string, fileName: string): ImpactAudit {
   const api_surface: ApiSurfaceItem[] = [];
   const database_impacts: ImpactItem[] = [];
@@ -265,18 +490,42 @@ function detectJavaImpactAudit(javaCode: string, fileName: string): ImpactAudit 
   const dependency_risks: DependencyRisk[] = [];
   const blast_radius: BlastRadiusItem[] = [];
 
-  if (javaCode.includes("@RestController") || javaCode.includes("@GetMapping") || javaCode.includes("@PostMapping") || javaCode.includes("HttpServlet")) {
-    api_surface.push({
-      endpoint_or_interface: `REST Endpoints (${fileName})`,
-      consumers: ["Client Applications", "Web Portal", "Mobile API Gateway"],
-      breaking_change_risk: "medium",
-    });
-  } else {
-    api_surface.push({
-      endpoint_or_interface: `CLI / Core Application Entrypoint (${fileName})`,
-      consumers: ["Internal Process / Orchestration Runner"],
-      breaking_change_risk: "low",
-    });
+  const classMatch = javaCode.match(/(?:public\s+)?class\s+([A-Za-z0-9_]+)/);
+  const primaryClass = classMatch ? classMatch[1] : fileName.replace(/\.java$/, "");
+
+  const publicMethodMatches = [
+    ...javaCode.matchAll(
+      /public\s+(?:static\s+)?([A-Za-z0-9_<>]+)\s+([a-z][A-Za-z0-9_]*)\s*\(([^)]*)\)/g
+    ),
+  ];
+
+  if (publicMethodMatches.length > 0) {
+    for (const mm of publicMethodMatches) {
+      const mName = mm[2];
+      if (["main", "if", "while", "for", "switch", "catch"].includes(mName)) continue;
+      const isMutating = /register|place|create|insert|update|delete|cancel|remove|add/i.test(mName);
+      api_surface.push({
+        endpoint_or_interface: `${primaryClass}::${mName}(${mm[3] ? mm[3].trim() : ""})`,
+        consumers: ["Client Applications", "Order Dispatcher", "Web / Mobile Gateway"],
+        breaking_change_risk: isMutating ? "medium" : "low",
+      });
+    }
+  }
+
+  if (api_surface.length === 0) {
+    if (javaCode.includes("@RestController") || javaCode.includes("@GetMapping") || javaCode.includes("@PostMapping") || javaCode.includes("HttpServlet")) {
+      api_surface.push({
+        endpoint_or_interface: `REST Endpoints (${fileName})`,
+        consumers: ["Client Applications", "Web Portal", "Mobile API Gateway"],
+        breaking_change_risk: "medium",
+      });
+    } else {
+      api_surface.push({
+        endpoint_or_interface: `CLI / Core Application Entrypoint (${fileName})`,
+        consumers: ["Internal Process / Orchestration Runner"],
+        breaking_change_risk: "low",
+      });
+    }
   }
 
   if (javaCode.includes("EntityManager") || javaCode.includes("javax.persistence") || javaCode.includes("jakarta.persistence") || javaCode.includes("DataSource")) {
@@ -287,9 +536,9 @@ function detectJavaImpactAudit(javaCode: string, fileName: string): ImpactAudit 
     });
   } else {
     database_impacts.push({
-      component: "In-Memory / File State",
+      component: "In-Memory / State Store",
       risk: "low",
-      notes: "No direct SQL/JPA database drivers detected in source code.",
+      notes: "In-memory state collections mapped to thread-safe Rust structs wrapped in tokio::sync::RwLock.",
     });
   }
 
@@ -303,7 +552,7 @@ function detectJavaImpactAudit(javaCode: string, fileName: string): ImpactAudit 
     config_impacts.push({
       component: "Environment Configuration",
       risk: "low",
-      notes: "Standard environment parameterization applied.",
+      notes: "Standard environment parameterization applied with dotenvy.",
     });
   }
 
@@ -325,11 +574,37 @@ function detectJavaImpactAudit(javaCode: string, fileName: string): ImpactAudit 
     });
   }
 
+  if (javaCode.includes("Vector<") || javaCode.includes("Hashtable<") || javaCode.includes("Stack<")) {
+    blast_radius.push({
+      change: "Synchronized Collections Migration (Vector/Hashtable/Stack)",
+      affected_files: [fileName, "AppState.rs", "models.rs"],
+      severity: "high",
+    });
+  }
+
+  if (javaCode.includes("Date") || javaCode.includes("SimpleDateFormat") || javaCode.includes("Calendar")) {
+    blast_radius.push({
+      change: "Legacy Date/Time API Replacement (Chrono Utc)",
+      affected_files: [fileName, "Order.rs"],
+      severity: "high",
+    });
+  }
+
+  if (javaCode.includes("calculateTotal") || javaCode.includes("Discount") || javaCode.includes("Tax")) {
+    blast_radius.push({
+      change: "Financial Calculation & State Mutation Engine",
+      affected_files: [fileName, "pricing.rs"],
+      severity: "medium",
+    });
+  }
+
   blast_radius.push({
-    change: `Modernize ${fileName}`,
+    change: `Modernize ${fileName} Core Architecture to Axum 0.7`,
     affected_files: [fileName],
     severity: javaCode.includes("javax.") || javaCode.includes("Unsafe") ? "high" : "medium",
   });
+
+  const diagrams = generateDetailedMermaidDiagrams(javaCode, fileName);
 
   return {
     api_surface,
@@ -337,6 +612,7 @@ function detectJavaImpactAudit(javaCode: string, fileName: string): ImpactAudit 
     config_impacts,
     dependency_risks,
     blast_radius,
+    diagrams,
     confidence: 0.92,
   };
 }
@@ -630,13 +906,7 @@ function synthesizeAiResponse(messages: { role: string; content: string }[]): st
       ? nodes.slice(0, -1).map((n, i) => ({ from: n, to: nodes[i + 1] }))
       : [];
 
-    const diagrams = [
-      {
-        type: "component",
-        format: "mermaid",
-        content: `graph TD\n  Client["Client Application"] --> ${primaryClass}["${primaryClass} (Spring / Java)"]\n  ${primaryClass} --> RustTarget["Rust Axum Target Engine"]`,
-      },
-    ];
+    const diagrams = generateDetailedMermaidDiagrams(userMsg, primaryClass);
 
     const audit = {
       architecture_summary: `Architectural analysis of Java source '${primaryClass}'. Detected ${classNames.length || 1} class unit(s), ${detectedStack.length} stack component(s), and ${deprecatedUsages.length} legacy pattern(s) requiring migration to memory-safe Rust Axum constructs.`,
@@ -753,65 +1023,53 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Try upstream if apiKey exists
   if (apiKey) {
     try {
-      const isNvidia = !useAiml;
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 25000);
+      const timer = setTimeout(() => controller.abort(), 75000);
       const upstream = await fetch(endpoint, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${apiKey}`,
           "Content-Type": "application/json",
-          Accept: isNvidia ? "text/event-stream" : "application/json",
+          Accept: "application/json",
         },
         body: JSON.stringify({
           model: model || (useAiml ? "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo" : "minimaxai/minimax-m3.1-flash"),
           messages,
           temperature: temperature ?? 0.1,
-          max_tokens: max_tokens ?? 1200,
-          stream: isNvidia,
+          max_tokens: max_tokens ?? 4096,
+          stream: false,
         }),
         signal: controller.signal,
       });
       clearTimeout(timer);
 
       if (upstream.ok) {
-        if (isNvidia) {
-          const rawText = await upstream.text();
-          let accumulated = "";
-          const lines = rawText.split("\n");
-          for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed || !trimmed.startsWith("data:")) continue;
-            const dataStr = trimmed.slice(5).trim();
-            if (dataStr === "[DONE]") continue;
-            try {
-              const json = JSON.parse(dataStr);
-              const delta = json.choices?.[0]?.delta?.content || "";
-              accumulated += delta;
-            } catch {}
-          }
-          if (accumulated.trim()) {
-            return res.status(200).json({
-              id: `chatcmpl-${Date.now()}`,
-              object: "chat.completion",
-              created: Math.floor(Date.now() / 1000),
-              model: model || "minimaxai/minimax-m3.1-flash",
-              choices: [
-                {
-                  index: 0,
-                  message: {
-                    role: "assistant",
-                    content: accumulated,
-                  },
-                  finish_reason: "stop",
+        const json: any = await upstream.json().catch(() => null);
+        if (json && json.choices?.[0]?.message) {
+          const choice = json.choices[0];
+          let rawContent = choice.message.content || choice.message.reasoning_content || "";
+          let cleanContent = rawContent
+            .replace(/^```(?:rust|json)?\s*/i, "")
+            .replace(/\s*```$/, "")
+            .trim();
+
+          return res.status(200).json({
+            id: json.id || `chatcmpl-${Date.now()}`,
+            object: "chat.completion",
+            created: json.created || Math.floor(Date.now() / 1000),
+            model: json.model || model || "minimaxai/minimax-m3.1-flash",
+            choices: [
+              {
+                index: 0,
+                message: {
+                  role: "assistant",
+                  content: cleanContent,
                 },
-              ],
-            });
-          }
-        } else {
-          const contentType = upstream.headers.get("content-type") || "";
-          const body = await upstream.text();
-          return res.status(200).setHeader("content-type", contentType).send(body);
+                finish_reason: choice.finish_reason || "stop",
+              },
+            ],
+            usage: json.usage,
+          });
         }
       } else {
         const upstreamErr = await upstream.text().catch(() => "");

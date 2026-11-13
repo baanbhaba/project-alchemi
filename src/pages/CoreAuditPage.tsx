@@ -159,18 +159,31 @@ export const CoreAuditPage: React.FC = () => {
           }
           subtitle="2D Flowchart & 3D Interactive Topology derived from source code & transformed Rust modules"
         >
-          <div className="space-y-4">
-            {audit.diagrams.map((diag, idx) => (
-              <div key={idx}>
-                <TopologyGraph
-                  mermaidChart={diag.content}
-                  id={`core-diag-${idx}`}
-                  nodes={audit.dependency_graph?.nodes}
-                  edges={audit.dependency_graph?.edges}
-                  transformedCode={audit.rust_code || getTransformedCode(id || "")}
-                />
-              </div>
-            ))}
+          <div className="space-y-6">
+            {audit.diagrams.map((diag, idx) => {
+              const label =
+                diag.type === "component"
+                  ? "1. End-to-End Microservice Architecture (Axum 0.7 & Tokio)"
+                  : diag.type === "class"
+                  ? "2. Domain Class & Entity Relationship Model"
+                  : diag.type === "blast_radius"
+                  ? "3. Blast Radius & Concurrency Safety Topology"
+                  : `Architectural Diagram ${idx + 1}`;
+              return (
+                <div key={idx} className="space-y-2 border-b border-zinc-100 dark:border-zinc-800 pb-4 last:border-b-0 last:pb-0">
+                  <div className="flex items-center space-x-2 text-[11px] font-mono font-bold text-amber-600 dark:text-amber-500 uppercase tracking-wider">
+                    <span>{label}</span>
+                  </div>
+                  <TopologyGraph
+                    mermaidChart={diag.content}
+                    id={`core-diag-${idx}`}
+                    nodes={audit.dependency_graph?.nodes}
+                    edges={audit.dependency_graph?.edges}
+                    transformedCode={audit.rust_code || getTransformedCode(id || "")}
+                  />
+                </div>
+              );
+            })}
           </div>
         </Card>
       </div>

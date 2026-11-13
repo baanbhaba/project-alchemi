@@ -195,7 +195,9 @@ export const StepCard: React.FC<StepCardProps> = ({
 
   const displayRustCode =
     transformedRustCode ||
-    (step.target_pattern && !step.target_pattern.includes("ModuleHandler")
+    (step.target_pattern &&
+    !step.target_pattern.includes("ModuleHandler") &&
+    !step.target_pattern.includes("Click 'Transform Step'")
       ? step.target_pattern
       : null);
 

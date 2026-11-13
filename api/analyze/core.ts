@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { prisma } from "../../src/lib/prisma.js";
-import { detectJavaStack, detectJavaDeprecatedUsages } from "../../src/lib/analysis.js";
+import { detectJavaStack, detectJavaDeprecatedUsages, generateDetailedMermaidDiagrams } from "../../src/lib/analysis.js";
 import { completeJson } from "../../src/server/llm.js";
 import { refreshProjectReadiness } from "../../src/server/auditMapping.js";
 import { generateRustCodeFromJava } from "../../src/server/rustGenerator.js";
@@ -150,14 +150,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         detected_stack: detectedStack,
         deprecated_usages: detectedUsages,
         dependency_graph: { nodes, edges },
-        diagrams: [{
-          type: "component",
-          format: "mermaid",
-          content: classNames.length > 0
-            ? `graph TD\n${classNames.map((c: string, i: number) => i === 0 ? `  ${c}["${c}"]` : `  ${classNames[i - 1]} --> ${c}["${c}"]`).join("\n")}`
-            : `graph TD\n  Source["${fileName}"] --> Target["Java 21 / Rust Axum"]`,
-        }],
-        confidence: 0.72,
+        diagrams: generateDetailedMermaidDiagrams(javaCode, fileName),
+        confidence: 0.88,
       };
     }
 

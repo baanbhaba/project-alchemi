@@ -143,8 +143,9 @@ CRITICAL ARCHITECTURAL CONSTRAINTS:
           },
         ],
         temperature: 0.1,
-        max_tokens: 1200,
+        max_tokens: 4096,
       }),
+      signal: typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(75000) : undefined,
     });
 
     if (res.ok) {

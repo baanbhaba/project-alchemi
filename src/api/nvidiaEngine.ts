@@ -3,6 +3,7 @@ import {
   detectJavaStack,
   detectJavaDeprecatedUsages,
   detectJavaImpactAudit,
+  generateDetailedMermaidDiagrams,
 } from "../lib/analysis";
 import { generateRustCodeFromJava } from "./transform";
 
@@ -40,13 +41,7 @@ function synthesizeClientAi(messages: { role: string; content: string }[]): stri
       detected_stack: detectedStack,
       deprecated_usages: deprecatedUsages,
       dependency_graph: { nodes, edges },
-      diagrams: [
-        {
-          type: "component",
-          format: "mermaid",
-          content: `graph TD\n  Client["Client Application"] --> ${primaryClass}["${primaryClass} (Spring / Java)"]\n  ${primaryClass} --> RustTarget["Rust Axum Target Engine"]`,
-        },
-      ],
+      diagrams: generateDetailedMermaidDiagrams(userMsg, primaryClass),
       confidence: 0.95,
     });
   }

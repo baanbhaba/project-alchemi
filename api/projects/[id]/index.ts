@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { prisma } from "../../../src/lib/prisma.js";
 import { mapProjectToSummary } from "../../../src/server/projectMapping.js";
-import { calculateReadinessScore, calculateConsensus } from "../../../src/lib/analysis.js";
+import { calculateReadinessScore, calculateConsensus, generateDetailedMermaidDiagrams } from "../../../src/lib/analysis.js";
 import { normalizeCoreAudit, normalizeImpactAudit, refreshProjectReadiness } from "../../../src/server/auditMapping.js";
 import { generateRustCodeFromJava } from "../../../src/server/rustGenerator.js";
 
@@ -315,7 +315,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             detected_stack: [{ technology: "Java", version: "8", status: "deprecated" }],
             deprecated_usages: [],
             dependency_graph: { nodes: [project.name], edges: [] },
-            diagrams: [{ type: "component", format: "mermaid", content: `graph TD\n  A[${project.name}] --> B[Target Service]` }],
+            diagrams: generateDetailedMermaidDiagrams(rawJava, project.name),
             confidence: 0.95,
           };
 
