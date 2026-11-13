@@ -368,7 +368,7 @@ export const StepCard: React.FC<StepCardProps> = ({
               </div>
 
               {/* Glowing Progress Bar Track */}
-              <div className="h-2 w-full bg-zinc-950 rounded-full overflow-hidden border border-zinc-800 p-0.5">
+              <div className="h-2 w-full bg-zinc-200 dark:bg-zinc-950 rounded-full overflow-hidden border border-zinc-300 dark:border-zinc-800 p-0.5">
                 <div
                   className="h-full rounded-full bg-gradient-to-r from-amber-500 via-amber-400 to-emerald-400 transition-all duration-200 shadow-[0_0_12px_rgba(245,158,11,0.5)]"
                   style={{ width: `${progress}%` }}

@@ -5,6 +5,7 @@ import { PageTransition } from "./components/common/PageTransition";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Layout } from "./components/layout/Layout";
 import { useAuthStore } from "./store/useAuthStore";
+import { useUiStore } from "./store/useUiStore";
 import { ErrorBoundary } from "./components/common/ErrorBoundary";
 import { Toaster } from "sonner";
 
@@ -74,9 +75,11 @@ const isElectron = navigator.userAgent.toLowerCase().includes('electron') || win
 const RouterComponent = isElectron ? HashRouter : BrowserRouter;
 
 export const App: React.FC = () => {
+  const { isDarkMode } = useUiStore();
+
   return (
     <ErrorBoundary>
-      <Toaster position="bottom-right" richColors closeButton theme="system" />
+      <Toaster position="bottom-right" richColors closeButton theme={isDarkMode ? "dark" : "light"} />
       <QueryClientProvider client={queryClient}>
         <RouterComponent>
           <Suspense fallback={<PageFallback />}>

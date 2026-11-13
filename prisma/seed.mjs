@@ -3,6 +3,10 @@ import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { Pool } from "pg";
 
+try {
+  process.loadEnvFile?.();
+} catch {}
+
 if (!process.env.DATABASE_URL) {
   console.error("DATABASE_URL environment variable is not set.");
   process.exit(1);

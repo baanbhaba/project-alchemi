@@ -36,12 +36,29 @@ interface UiState {
   notifyBackendRequired: (featureName: string) => void;
 }
 
+const getInitialDarkMode = (): boolean => {
+  if (typeof window === "undefined") return false;
+  try {
+    const stored = localStorage.getItem("ema_theme");
+    if (stored === "dark") return true;
+    if (stored === "light") return false;
+  } catch {
+    // ignore storage access errors
+  }
+  return false; // Light theme is default everywhere
+};
+
 export const useUiStore = create<UiState>((set, get) => ({
-  isDarkMode: true,
+  isDarkMode: getInitialDarkMode(),
   isHamburgerOpen: false,
   toggleDarkMode: () =>
     set((state) => {
       const next = !state.isDarkMode;
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem("ema_theme", next ? "dark" : "light");
+        } catch {}
+      }
       if (next) {
         document.documentElement.classList.add("dark");
       } else {
@@ -51,6 +68,11 @@ export const useUiStore = create<UiState>((set, get) => ({
       return { isDarkMode: next };
     }),
   setDarkMode: (isDark) => {
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem("ema_theme", isDark ? "dark" : "light");
+      } catch {}
+    }
     if (isDark) {
       document.documentElement.classList.add("dark");
     } else {

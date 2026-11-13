@@ -228,7 +228,7 @@ model AuditHistory {
 
 model UserPreference {
   userId               String   @id
-  theme                String   @default("dark")
+  theme                String   @default("light")
   aiModel              String   @default("meta/llama-3.1-70b-instruct")
   defaultReviewMode    String   @default("strict")
   notificationsEnabled Boolean  @default(true)

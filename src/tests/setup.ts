@@ -2,6 +2,14 @@ import "@testing-library/jest-dom";
 import { cleanup } from "@testing-library/react";
 import { afterEach } from "vitest";
 
+try {
+  process.loadEnvFile?.();
+} catch {}
+
+if (!process.env.DATABASE_URL) {
+  process.env.DATABASE_URL = "postgresql://alchemi:alchemi@localhost:5432/alchemi_dev";
+}
+
 afterEach(() => {
   cleanup();
 });

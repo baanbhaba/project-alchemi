@@ -86,12 +86,12 @@ export const TopologyGraph: React.FC<TopologyGraphProps> = ({
       {/* 3D / Interactive Topology View */}
       {viewMode === "topology3d" && (
         <div className="space-y-3">
-          <div className="p-4 bg-zinc-950 border border-zinc-800 rounded-xl relative overflow-hidden min-h-[220px] flex flex-col justify-between">
+          <div className="p-4 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl relative overflow-hidden min-h-[220px] flex flex-col justify-between transition-colors">
             {/* Background mesh grid effect */}
-            <div className="absolute inset-0 bg-[radial-gradient(#3f3f46_1px,transparent_1px)] [background-size:16px_16px] opacity-20 pointer-events-none" />
+            <div className="absolute inset-0 bg-[radial-gradient(#a1a1aa_1px,transparent_1px)] dark:bg-[radial-gradient(#3f3f46_1px,transparent_1px)] [background-size:16px_16px] opacity-20 pointer-events-none" />
 
             <div className="flex items-center justify-between text-[10px] text-zinc-500 z-10">
-              <span className="flex items-center space-x-1 font-bold text-amber-500">
+              <span className="flex items-center space-x-1 font-bold text-amber-600 dark:text-amber-500">
                 <Box className="w-3.5 h-3.5" />
                 <span>CHAINED TOPOLOGY NODE CANVAS</span>
               </span>
@@ -108,8 +108,8 @@ export const TopologyGraph: React.FC<TopologyGraphProps> = ({
                     onClick={() => setSelectedNode(node.name)}
                     className={`p-3 rounded-xl border text-left transition-all cursor-pointer space-y-1 ${
                       selectedNode === node.name
-                        ? "bg-amber-500/20 border-amber-500 text-amber-300 ring-2 ring-amber-500/50 scale-105"
-                        : "bg-zinc-900 hover:bg-zinc-800 border-zinc-800 text-zinc-200"
+                        ? "bg-amber-500/20 border-amber-500 text-amber-700 dark:text-amber-300 ring-2 ring-amber-500/50 scale-105"
+                        : "bg-white dark:bg-zinc-900 hover:bg-zinc-100 dark:hover:bg-zinc-800 border-zinc-200 dark:border-zinc-800 text-zinc-800 dark:text-zinc-200"
                     }`}
                   >
                     <div className="flex items-center justify-between space-x-3 text-xs font-bold">

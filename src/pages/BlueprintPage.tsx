@@ -157,17 +157,17 @@ export const BlueprintPage: React.FC = () => {
     <div className="space-y-6">
       {/* Regeneration active loading banner */}
       {regenerateMutation.isPending && (
-        <div className="p-4 rounded-lg bg-zinc-900 border border-amber-500/40 space-y-3 shadow-lg">
+        <div className="p-4 rounded-lg bg-amber-50/80 dark:bg-zinc-900 border border-amber-500/40 space-y-3 shadow-lg">
           <div className="flex items-center justify-between text-xs font-mono">
-            <div className="flex items-center space-x-2 text-amber-400 font-bold">
-              <Sparkles className="w-4 h-4 animate-spin text-amber-400" />
+            <div className="flex items-center space-x-2 text-amber-600 dark:text-amber-400 font-bold">
+              <Sparkles className="w-4 h-4 animate-spin text-amber-500" />
               <span>Generating Fresh AI Blueprint with NVIDIA NIM...</span>
             </div>
-            <span className="text-[11px] text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/30">
+            <span className="text-[11px] text-amber-600 dark:text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/30">
               SYNTHESIZING
             </span>
           </div>
-          <div className="h-1.5 w-full bg-zinc-950 rounded-full overflow-hidden border border-zinc-800">
+          <div className="h-1.5 w-full bg-zinc-200 dark:bg-zinc-950 rounded-full overflow-hidden border border-zinc-300 dark:border-zinc-800">
             <div className="h-full bg-gradient-to-r from-amber-500 via-amber-300 to-emerald-400 animate-[pulse_1s_ease-in-out_infinite]" />
           </div>
         </div>

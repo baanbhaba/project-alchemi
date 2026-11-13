@@ -36,9 +36,15 @@ export async function fetchApi<T>(
     throw new ApiError(503, "Simulated Backend API Error: 503 Service Unavailable", endpoint);
   }
 
-  const url = endpoint.startsWith("http")
+  const rawUrl = endpoint.startsWith("http")
     ? endpoint
     : `${BASE_URL.replace(/\/$/, "")}/${endpoint.replace(/^\//, "")}`;
+
+  const origin = typeof window !== "undefined" && window.location?.origin && window.location.origin !== "null"
+    ? window.location.origin
+    : "http://localhost:5173";
+
+  const url = rawUrl.startsWith("http") ? rawUrl : `${origin}${rawUrl.startsWith("/") ? "" : "/"}${rawUrl}`;
 
   const hasWindow = typeof window !== "undefined";
   const authState = (hasWindow ? (window as any).__EMA_AUTH_STATE__ : undefined) || {};

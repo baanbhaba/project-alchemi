@@ -6,6 +6,10 @@ const { Pool } = pg;
 
 const prismaBin = path.join(process.cwd(), "node_modules", ".bin", "prisma");
 
+try {
+  process.loadEnvFile?.();
+} catch {}
+
 if (!process.env.DATABASE_URL) {
   console.error("ensure-migrations: DATABASE_URL is not set.");
   process.exit(1);
