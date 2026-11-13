@@ -355,7 +355,7 @@ export const StepCard: React.FC<StepCardProps> = ({
 
             <div className="flex items-center gap-2">
               <button
-                onClick={() => handleRunTransformation(false)}
+                onClick={() => handleRunTransformation(!!displayRustCode)}
                 disabled={isTransforming || isVerifyingOnly}
                 className={`inline-flex items-center space-x-2 px-3.5 py-1.5 rounded text-xs font-bold transition-all shadow-md ${
                   isTransforming

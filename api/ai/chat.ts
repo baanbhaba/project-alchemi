@@ -341,68 +341,140 @@ function detectJavaImpactAudit(javaCode: string, fileName: string): ImpactAudit 
   };
 }
 
-function generateRustCodeFromJava(javaCode: string): string {
-  const classMatch =
-    javaCode.match(/(?:public\s+)?(?:class|interface|record)\s+([A-Za-z0-9_]+)/) ||
-    javaCode.match(/(?:class|interface|record)\s+([A-Za-z0-9_]+)/);
-  const className = classMatch ? classMatch[1] : "MigratedService";
-  const slugName = className.toLowerCase();
+function mapJavaTypeToRust(rawType: string): string {
+  if (!rawType) return "String";
+  const t = rawType.trim();
+  if (/^(?:int|Integer|long|Long|short|byte)$/i.test(t)) return "i64";
+  if (/^(?:double|Double|float|Float)$/i.test(t)) return "f64";
+  if (/^(?:boolean|Boolean)$/i.test(t)) return "bool";
+  if (/^(?:String|CharSequence)$/i.test(t)) return "String";
+  if (/^(?:Date|Calendar|Instant|Timestamp)$/i.test(t)) return "chrono::DateTime<chrono::Utc>";
 
-  // Extract fields matching typed Java variables: e.g. private String orderId; private double total;
+  const listMatch = t.match(/^(?:List|ArrayList|Vector|Stack|Set|HashSet)<([^>]+)>$/i);
+  if (listMatch) {
+    const inner = mapJavaTypeToRust(listMatch[1]);
+    return `Vec<${inner}>`;
+  }
+
+  const mapMatch = t.match(/^(?:Map|HashMap|Hashtable)<([^,>]+),\s*([^>]+)>$/i);
+  if (mapMatch) {
+    const k = mapJavaTypeToRust(mapMatch[1]);
+    const v = mapJavaTypeToRust(mapMatch[2]);
+    return `std::collections::HashMap<${k}, ${v}>`;
+  }
+
+  return t;
+}
+
+function getDefaultValueForRustType(rustType: string, fieldName: string = ""): string {
+  if (rustType === "i64") return "0";
+  if (rustType === "f64") return "0.0";
+  if (rustType === "bool") return fieldName.toLowerCase().includes("active") ? "true" : "false";
+  if (rustType.startsWith("Vec<")) return "Vec::new()";
+  if (rustType.startsWith("std::collections::HashMap<")) return "std::collections::HashMap::new()";
+  if (rustType.startsWith("std::collections::HashSet<")) return "std::collections::HashSet::new()";
+  if (rustType.includes("DateTime")) return "chrono::Utc::now()";
+  return 'String::new()';
+}
+
+interface ParsedField {
+  name: string;
+  rustType: string;
+  defaultVal: string;
+}
+
+function parseFieldsFromClassSnippet(classBody: string): ParsedField[] {
   const fieldMatches = [
-    ...javaCode.matchAll(
-      /(?:(?:private|protected|public)\s+)?(?:final\s+)?(?:static\s+)?\b(int|Integer|long|Long|short|byte|double|Double|float|Float|boolean|Boolean|String|List<[^>]+>|Set<[^>]+>|Map<[^>]+>|Vector<[^>]+>|Hashtable<[^>]+>|[A-Z][A-Za-z0-9_<>]*)\s+([a-z][A-Za-z0-9_]*)\s*(?:=\s*[^;]+)?;?/g
+    ...classBody.matchAll(
+      /(?:(?:private|protected|public)\s+)?(?:final\s+)?(?:static\s+)?\b(int|Integer|long|Long|short|byte|double|Double|float|Float|boolean|Boolean|String|List<[^>]+>|Set<[^>]+>|Map<[^,>]+,\s*[^>]+>|Vector<[^>]+>|Hashtable<[^,>]+,\s*[^>]+>|Stack<[^>]+>|Date|Calendar|[A-Z][A-Za-z0-9_<>]*)\s+([a-z][A-Za-z0-9_]*)\s*(?:=\s*[^;]+)?;?/g
     ),
   ];
   const seenFields = new Set<string>();
-  const fields: Array<{ name: string; rustType: string; defaultVal: string }> = [];
+  const fields: ParsedField[] = [];
 
   for (const m of fieldMatches) {
     const rawType = m[1];
     const rawName = m[2];
-    if (["class", "interface", "record", "return", "new", "throw", "import", "package"].includes(rawType)) continue;
-    if (["class", "interface", "record", "void", "static"].includes(rawName)) continue;
+    if (["class", "interface", "record", "return", "new", "throw", "import", "package", "void", "static"].includes(rawType)) continue;
+    if (["class", "interface", "record", "void", "static", "return", "new", "throw", "system"].includes(rawName)) continue;
     if (seenFields.has(rawName)) continue;
     seenFields.add(rawName);
 
-    let rustType = "String";
-    let defaultVal = 'String::new()';
-
-    if (/^(?:int|Integer|long|Long|short|byte)$/i.test(rawType)) {
-      rustType = "i64";
-      defaultVal = "0";
-    } else if (/^(?:double|Double|float|Float)$/i.test(rawType)) {
-      rustType = "f64";
-      defaultVal = "0.0";
-    } else if (/^(?:boolean|Boolean)$/i.test(rawType)) {
-      rustType = "bool";
-      defaultVal = "false";
-    } else if (/List<([^>]+)>|ArrayList<([^>]+)>|Vector<([^>]+)>/i.test(rawType)) {
-      rustType = "Vec<String>";
-      defaultVal = "Vec::new()";
-    } else if (/Map<([^>]+)>|HashMap<([^>]+)>|Hashtable<([^>]+)>/i.test(rawType)) {
-      rustType = "std::collections::HashMap<String, String>";
-      defaultVal = "std::collections::HashMap::new()";
-    } else if (/Set<([^>]+)>|HashSet<([^>]+)>/i.test(rawType)) {
-      rustType = "std::collections::HashSet<String>";
-      defaultVal = "std::collections::HashSet::new()";
-    } else if (/Date|Calendar|Instant/i.test(rawType)) {
-      rustType = "chrono::DateTime<chrono::Utc>";
-      defaultVal = "chrono::Utc::now()";
-    }
-
+    const rustType = mapJavaTypeToRust(rawType);
+    const defaultVal = getDefaultValueForRustType(rustType, rawName);
     fields.push({ name: rawName, rustType, defaultVal });
   }
 
-  // Extract methods
-  const methodMatches = [...javaCode.matchAll(/(?:public|protected|private)?\s*(?:static)?\s*([A-Za-z0-9_<>]+)\s+([A-Za-z0-9_]+)\s*\(([^)]*)\)/g)];
+  return fields;
+}
+
+function generateRustCodeFromJava(javaCode: string): string {
+  const classRegex = /(?:public\s+)?(?:class|interface|record)\s+([A-Za-z0-9_]+)\s*\{([\s\S]*?)\}(?=\s*(?:(?:public\s+)?(?:class|interface|record)|\s*$))/g;
+  const classMatches = [...javaCode.matchAll(classRegex)];
+
+  let primaryClass = "MigratedService";
+  if (classMatches.length > 0) {
+    const publicMatch = classMatches.find(m => m[0].startsWith("public "));
+    primaryClass = publicMatch ? publicMatch[1] : classMatches[0][1];
+  } else {
+    const fallbackMatch = javaCode.match(/(?:public\s+)?(?:class|interface|record)\s+([A-Za-z0-9_]+)/);
+    if (fallbackMatch) primaryClass = fallbackMatch[1];
+  }
+
+  const slugName = primaryClass.toLowerCase();
+
+  // Parse auxiliary classes (e.g. Product, Customer, Order)
+  const auxiliaryStructs: string[] = [];
+  for (const match of classMatches) {
+    const cName = match[1];
+    if (cName === primaryClass) continue;
+    const body = match[2];
+    const auxFields = parseFieldsFromClassSnippet(body);
+
+    const fieldsStr = auxFields.length > 0
+      ? auxFields.map((f) => `    pub ${f.name}: ${f.rustType},`).join("\n")
+      : `    pub id: i64,\n    pub name: String,`;
+
+    const ctorParams = auxFields.length > 0
+      ? auxFields.map((f) => `${f.name}: ${f.rustType === "String" ? "impl Into<String>" : f.rustType}`).join(", ")
+      : `id: i64, name: impl Into<String>`;
+
+    const ctorFields = auxFields.length > 0
+      ? auxFields.map((f) => `            ${f.name}: ${f.rustType === "String" ? `${f.name}.into()` : f.name},`).join("\n")
+      : `            id,\n            name: name.into(),`;
+
+    auxiliaryStructs.push(`#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ${cName} {
+${fieldsStr}
+}
+
+impl ${cName} {
+    pub fn new(${ctorParams}) -> Self {
+        Self {
+${ctorFields}
+        }
+    }
+}`);
+  }
+
+  // Parse primary class fields
+  const primaryMatch = classMatches.find(m => m[1] === primaryClass);
+  const primaryBody = primaryMatch ? primaryMatch[2] : javaCode;
+  const fields = parseFieldsFromClassSnippet(primaryBody);
+
+  // Extract methods from primary class
+  const methodMatches = [
+    ...primaryBody.matchAll(
+      /(?:public|protected|private)?\s*(?:static)?\s*([A-Za-z0-9_<>]+)\s+([A-Za-z0-9_]+)\s*\(([^)]*)\)/g
+    ),
+  ];
   const methods: Array<{ name: string; rustMethodName: string; returnType: string }> = [];
   const seenMethods = new Set<string>();
 
   for (const m of methodMatches) {
     const retType = m[1];
     const mName = m[2];
-    if (["if", "while", "for", "switch", "catch", "new", className].includes(mName)) continue;
+    if (["if", "while", "for", "switch", "catch", "new", primaryClass].includes(mName)) continue;
     if (seenMethods.has(mName)) continue;
     seenMethods.add(mName);
 
@@ -416,7 +488,7 @@ function generateRustCodeFromJava(javaCode: string): string {
 
   const rustInitFields = fields.length > 0
     ? fields.map((f) => `            ${f.name}: ${f.defaultVal},`).join("\n")
-    : `            id: "svc_${slugName}".to_string(),\n            name: "${className}".to_string(),\n            is_active: true,`;
+    : `            id: "svc_${slugName}".to_string(),\n            name: "${primaryClass}".to_string(),\n            is_active: true,`;
 
   const rustMethods = methods
     .filter((m) => m.rustMethodName !== "main")
@@ -441,6 +513,8 @@ function generateRustCodeFromJava(javaCode: string): string {
     })
     .join("\n\n");
 
+  const auxBlock = auxiliaryStructs.length > 0 ? auxiliaryStructs.join("\n\n") + "\n\n" : "";
+
   return `use axum::{
     extract::{Json, State},
     response::IntoResponse,
@@ -451,41 +525,41 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ${className} {
+${auxBlock}#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ${primaryClass} {
 ${rustFields}
 }
 
-impl ${className} {
+impl ${primaryClass} {
     pub fn new() -> Self {
         Self {
 ${rustInitFields}
         }
     }
 
-${rustMethods || `    pub async fn execute_task(&mut self) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {\n        Ok("${className}_executed".to_string())\n    }`}
+${rustMethods || `    pub async fn execute_task(&mut self) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {\n        Ok("${primaryClass}_executed".to_string())\n    }`}
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ${className}Payload {
+pub struct ${primaryClass}Payload {
 ${rustFields}
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ${className}Response {
+pub struct ${primaryClass}Response {
     pub success: bool,
     pub message: String,
-    pub data: Option<${className}>,
+    pub data: Option<${primaryClass}>,
 }
 
 pub struct AppState {
-    pub service: RwLock<${className}>,
+    pub service: RwLock<${primaryClass}>,
 }
 
 impl AppState {
     pub fn new() -> Self {
         Self {
-            service: RwLock::new(${className}::new()),
+            service: RwLock::new(${primaryClass}::new()),
         }
     }
 }
@@ -499,13 +573,13 @@ pub async fn handle_${slugName}_status(
 
 pub async fn handle_${slugName}_process(
     State(state): State<Arc<AppState>>,
-    Json(payload): Json<${className}Payload>,
+    Json(payload): Json<${primaryClass}Payload>,
 ) -> impl IntoResponse {
     let mut service = state.service.write().await;
 ${fields.length > 0 ? fields.map((f) => `    service.${f.name} = payload.${f.name};`).join("\n") : `    service.is_active = true;`}
-    let response = ${className}Response {
+    let response = ${primaryClass}Response {
         success: true,
-        message: format!("Successfully processed request for ${className}"),
+        message: format!("Successfully processed request for ${primaryClass}"),
         data: Some(service.clone()),
     };
     Json(response)
