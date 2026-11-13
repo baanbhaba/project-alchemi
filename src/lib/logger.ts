@@ -27,7 +27,7 @@ interface LogEntry {
 
 const isDev = typeof import.meta !== "undefined" && (import.meta as any).env?.DEV !== undefined
   ? Boolean((import.meta as any).env.DEV)
-  : process.env.NODE_ENV !== "production";
+  : (typeof process !== "undefined" ? process.env?.NODE_ENV !== "production" : false);
 
 let _correlationId: string | null = null;
 
@@ -90,7 +90,7 @@ function consoleTransport(entry: LogEntry): void {
 
 const REMOTE_ENDPOINT = typeof import.meta !== "undefined" && (import.meta as any).env?.VITE_LOG_ENDPOINT
   ? ((import.meta as any).env.VITE_LOG_ENDPOINT as string)
-  : (process.env.VITE_LOG_ENDPOINT as string | undefined);
+  : (typeof process !== "undefined" ? (process.env?.VITE_LOG_ENDPOINT as string | undefined) : undefined);
 
 function remoteTransport(entry: LogEntry): void {
   if (!REMOTE_ENDPOINT || typeof navigator === "undefined" || !navigator.sendBeacon) return;

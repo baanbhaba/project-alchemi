@@ -5,8 +5,13 @@ import tailwindcss from "@tailwindcss/vite";
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  define: {
+    "process.env": {},
+  },
   base: "./", // Use relative base path for desktop file:// protocol loading in Electron
   server: {
+    host: true,
+    port: 5173,
     proxy: {
       "/api": {
         target: "http://localhost:8080",
