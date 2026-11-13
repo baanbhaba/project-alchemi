@@ -2,7 +2,6 @@ import type { MigrationContext } from "../types/contracts";
 import {
   triggerTransformation,
   saveTransformedCode,
-  generateRustCodeFromJava,
   isJavaSourceCode,
 } from "./transform";
 import { sanitizeRustCode } from "../utils/exportRustCode";
@@ -144,16 +143,11 @@ export async function executeUnifiedMigration(
 
       generationCount = (existing?.generation_call_count || 0) + 1;
 
-      try {
-        const transRes = await triggerTransformation(projectId, "step-1", javaSource);
-        rustCode = sanitizeRustCode(transRes.transformed_code);
-      } catch (err) {
-        // Fallback to deterministic AST migration engine
-        console.warn("[ORCHESTRATOR] Migration engine fallback engaged:", err);
-        const fallbackCode = generateRustCodeFromJava(javaSource);
-        rustCode = sanitizeRustCode(fallbackCode);
-        saveTransformedCode(projectId, "step-1", rustCode);
+      const transRes = await triggerTransformation(projectId, "step-1", javaSource);
+      if (!transRes.transformed_code || transRes.transformed_code.trim().length === 0) {
+        throw new Error("AI Code Migration failed to return valid Rust code.");
       }
+      rustCode = sanitizeRustCode(transRes.transformed_code);
 
       notify("Migration generation complete. Storing artifact...", 40);
     }

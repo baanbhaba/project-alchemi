@@ -1,6 +1,5 @@
 import type { BlueprintStep } from "../types/contracts";
-import { getProjectSourceCode } from "../api/project";
-import { generateRustCodeFromJava } from "../api/transform";
+import { getTransformedCode } from "../api/transform";
 
 export const stripRustComments = (code: string): string => {
   let result = "";
@@ -121,12 +120,14 @@ export async function downloadCombinedRustProject(
 
   const extractedCodeChunks: string[] = rustFiles.map(f => f.code);
 
-  // If no blueprint steps have Rust code, try generating from raw Java
+  // If no blueprint steps have Rust code, check if transformed code is stored
   if (extractedCodeChunks.length === 0) {
-    const srcMap = await getProjectSourceCode(projectId);
-    const rawJavaCode = Object.values(srcMap).join("\n") || "";
-    const generated = generateRustCodeFromJava(rawJavaCode, "combined");
-    extractedCodeChunks.push(generated);
+    const storedCode = getTransformedCode(projectId);
+    if (storedCode && storedCode.trim()) {
+      extractedCodeChunks.push(sanitizeRustCode(storedCode));
+    } else {
+      throw new Error("No migrated Rust code found. Please run the AI migration pipeline first.");
+    }
   }
 
   const cleanName = (projectName || "migrated_service")

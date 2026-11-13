@@ -93,7 +93,12 @@ export const triggerTransformation = async (
 
   // Try the server-side AI proxy first (key lives on the server)
   try {
-    const res = await fetch("/api/v1/ai/chat", {
+    const origin = typeof window !== "undefined" && window.location?.origin && window.location.origin !== "null"
+      ? window.location.origin
+      : "http://localhost:5173";
+    const chatUrl = typeof window !== "undefined" ? "/api/v1/ai/chat" : `${origin}/api/v1/ai/chat`;
+
+    const res = await fetch(chatUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -151,34 +156,21 @@ CRITICAL ARCHITECTURAL CONSTRAINTS:
     if (res.ok) {
       const data = await res.json();
       const rawCode = data.choices?.[0]?.message?.content || "";
+      if (!rawCode || rawCode.trim().length === 0) {
+        throw new Error("AI Migration Engine returned empty code response. No output received from model.");
+      }
       const cleanCode = sanitizeRustCode(rawCode);
       saveTransformedCode(projectId, stepId, cleanCode);
       updateBlueprintStep(projectId, stepId, { target_pattern: cleanCode }).catch(() => {});
       return { step_id: stepId, transformed_code: cleanCode, status: "completed" };
+    } else {
+      const errData = await res.json().catch(() => null);
+      const errMsg = errData?.error || `AI proxy error (${res.status})`;
+      throw new Error(`AI Code Migration failed: ${errMsg}`);
     }
-  } catch (err) {
-    console.warn("[TRANSFORM] AI proxy unavailable, falling back to Vercel function or local engine:", err);
-  }
-
-  // Try Vercel serverless function
-  try {
-    const backendResult = await fetchApi<TransformationResponse>(
-      `/projects/${projectId}/transform`,
-      {
-        method: "POST",
-        body: JSON.stringify({ stepId }),
-      }
-    );
-    if (backendResult?.transformed_code) {
-      saveTransformedCode(projectId, stepId, backendResult.transformed_code);
-      updateBlueprintStep(projectId, stepId, { target_pattern: backendResult.transformed_code }).catch(() => {});
-    }
-    return backendResult;
-  } catch {
-    const mockTransformed = generateRustCodeFromJava(javaCode, stepId);
-    saveTransformedCode(projectId, stepId, mockTransformed);
-    updateBlueprintStep(projectId, stepId, { target_pattern: mockTransformed }).catch(() => {});
-    return { step_id: stepId, transformed_code: mockTransformed, status: "completed" };
+  } catch (err: any) {
+    console.error("[TRANSFORM] AI migration failed:", err?.message || err);
+    throw err;
   }
 };
 

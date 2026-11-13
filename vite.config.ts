@@ -1,8 +1,6 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
-import { generateRustCodeFromJava } from "./src/server/rustGenerator.ts";
-import { generateDetailedMermaidDiagrams } from "./src/lib/analysis.ts";
 
 function aiDevMiddleware() {
   return {
@@ -23,8 +21,6 @@ function aiDevMiddleware() {
               } catch {}
               const messages = parsedBody.messages || [];
               const model = parsedBody.model || "minimaxai/minimax-m3.1-flash";
-              const sysMsg = messages.find((m: any) => m.role === "system")?.content || "";
-              const userMsg = messages.filter((m: any) => m.role === "user").map((m: any) => m.content).join("\n\n");
 
               const apiKey = process.env.NVIDIA_API_KEY || "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";
               if (apiKey) {
@@ -78,120 +74,24 @@ function aiDevMiddleware() {
                       );
                       return;
                     }
+                  } else {
+                    const errText = await upstream.text().catch(() => upstream.statusText);
+                    res.setHeader("Content-Type", "application/json");
+                    res.statusCode = upstream.status || 502;
+                    res.end(JSON.stringify({ error: `Upstream AI error (${upstream.status}): ${errText}` }));
+                    return;
                   }
-                } catch {}
-              }
-
-              let content = "";
-              if (sysMsg.includes("Core Analysis Agent") || sysMsg.includes("CoreAudit")) {
-                const classNames = [...userMsg.matchAll(/(?:public\s+)?(?:class|interface|enum)\s+(\w+)/g)].map((m) => m[1]);
-                const primaryClass = classNames[0] || "PaymentGateway";
-                content = JSON.stringify({
-                  architecture_summary: `Architectural analysis of Java source '${primaryClass}'. Detected ${classNames.length || 1} class unit(s). Modernization path target: Rust Axum with memory safety.`,
-                  detected_stack: [
-                    { technology: "Java", version: "1.8.0", status: "eol" },
-                    { technology: "Spring Boot", version: "2.7.0", status: "eol" },
-                  ],
-                  deprecated_usages: [
-                    {
-                      file: `${primaryClass}.java`,
-                      line: 12,
-                      pattern: "Deprecated API pattern",
-                      recommended_replacement: "Rust memory-safe equivalent",
-                    },
-                  ],
-                  dependency_graph: { nodes: classNames.length ? classNames : [primaryClass], edges: [] },
-                  diagrams: generateDetailedMermaidDiagrams(userMsg, primaryClass),
-                  confidence: 0.95,
-                });
-              } else if (sysMsg.includes("Impact Analysis Agent") || sysMsg.includes("ImpactAudit")) {
-                const diagrams = generateDetailedMermaidDiagrams(userMsg, "Main.java");
-                content = JSON.stringify({
-                  api_surface: [
-                    {
-                      endpoint_or_interface: "/api/v1/payments",
-                      consumers: ["Web Client"],
-                      breaking_change_risk: "medium",
-                    },
-                  ],
-                  database_impacts: [
-                    { component: "JPA Entities", risk: "medium", notes: "Convert to SQLx structs" },
-                  ],
-                  config_impacts: [
-                    { file: "application.properties", risk: "low", notes: "Port to config.rs" },
-                  ],
-                  dependency_risks: [],
-                  blast_radius: [
-                    { change: "Migrate endpoints", affected_files: ["Main.java"], severity: "medium" },
-                  ],
-                  diagrams,
-                  confidence: 0.92,
-                });
-              } else if (sysMsg.includes("Blueprint Agent") || sysMsg.includes("Blueprint")) {
-                content = JSON.stringify({
-                  project_id: "blueprint-active",
-                  steps: [
-                    {
-                      id: "step-1",
-                      file_or_module: "Models.java",
-                      what_changes: "Data structures to Rust Serde",
-                      why: "Memory safety",
-                      target_pattern: "#[derive(Serialize, Deserialize)]",
-                      risk_level: "low",
-                      depends_on: [],
-                      status: "pending",
-                    },
-                    {
-                      id: "step-2",
-                      file_or_module: "Service.java",
-                      what_changes: "Business logic to async Rust",
-                      why: "High concurrency",
-                      target_pattern: "pub async fn execute()",
-                      risk_level: "medium",
-                      depends_on: ["step-1"],
-                      status: "pending",
-                    },
-                    {
-                      id: "step-3",
-                      file_or_module: "Controller.java",
-                      what_changes: "REST endpoints to Axum router",
-                      why: "High throughput",
-                      target_pattern: "Router::new()",
-                      risk_level: "medium",
-                      depends_on: ["step-2"],
-                      status: "pending",
-                    },
-                  ],
-                });
-              } else if (
-                sysMsg.includes("Code Migration Engine") ||
-                sysMsg.includes("Rust Axum") ||
-                userMsg.includes("Migrate to Rust")
-              ) {
-                content = generateRustCodeFromJava(userMsg);
-              } else {
-                content =
-                  "ALCHEMI Migration AI Engine: Inspection of input Java source completed successfully.";
+                } catch (err: any) {
+                  res.setHeader("Content-Type", "application/json");
+                  res.statusCode = 504;
+                  res.end(JSON.stringify({ error: `AI request failed: ${err?.message || "Timeout"}` }));
+                  return;
+                }
               }
 
               res.setHeader("Content-Type", "application/json");
-              res.statusCode = 200;
-              res.end(
-                JSON.stringify({
-                  id: `chatcmpl-${Date.now()}`,
-                  object: "chat.completion",
-                  created: Math.floor(Date.now() / 1000),
-                  model,
-                  choices: [
-                    {
-                      index: 0,
-                      message: { role: "assistant", content },
-                      finish_reason: "stop",
-                    },
-                  ],
-                  usage: { prompt_tokens: 100, completion_tokens: 300, total_tokens: 400 },
-                })
-              );
+              res.statusCode = 500;
+              res.end(JSON.stringify({ error: "NVIDIA_API_KEY is not configured. Live AI output required." }));
             } catch (err: any) {
               res.statusCode = 500;
               res.end(JSON.stringify({ error: err.message }));

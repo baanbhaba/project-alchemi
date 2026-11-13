@@ -1,6 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { prisma } from "../../src/lib/prisma.js";
-import { generateRustCodeFromJava } from "../../src/server/rustGenerator.js";
 import { mapProjectToSummary } from "../../src/server/projectMapping.js";
 import {
   detectJavaStack,
@@ -44,8 +43,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const fileName = `${name.replace(/[^a-zA-Z0-9_]/g, "")}.java`;
         const detectedStack = detectJavaStack(javaCode);
         const deprecatedUsages = detectJavaDeprecatedUsages(javaCode, fileName);
-        const transformedRust = generateRustCodeFromJava(javaCode, "step-1");
-        const diagrams = generateDetailedMermaidDiagrams(javaCode, name, transformedRust);
+        const diagrams = generateDetailedMermaidDiagrams(javaCode, name);
         const core = {
           id: "",
           projectId: "",
@@ -113,7 +111,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                     fileOrModule: `${name.replace(/[^a-zA-Z0-9_]/g, "")}.java`,
                     whatChanges: "Upgrade bytecode & convert REST controller logic to Axum router",
                     why: "Modernize Java application to Rust Tokio runtime",
-                    targetPattern: generateRustCodeFromJava(javaCode || `public class ${name.replace(/[^a-zA-Z0-9_]/g, "")} {}`, "step-1"),
+                    targetPattern: "",
                     riskLevel: "medium",
                     status: "pending",
                   },

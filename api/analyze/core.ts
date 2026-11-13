@@ -1,9 +1,8 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { prisma } from "../../src/lib/prisma.js";
-import { detectJavaStack, detectJavaDeprecatedUsages, generateDetailedMermaidDiagrams } from "../../src/lib/analysis.js";
+import { generateDetailedMermaidDiagrams } from "../../src/lib/analysis.js";
 import { completeJson } from "../../src/server/llm.js";
 import { refreshProjectReadiness } from "../../src/server/auditMapping.js";
-import { generateRustCodeFromJava } from "../../src/server/rustGenerator.js";
 
 const CORE_SYSTEM_PROMPT = `You are the CORE ANALYSIS AGENT in ALCHEMI (Automated Legacy Code Transformation Engine),
 a multi-agent system that migrates legacy Java codebases to idiomatic Rust.
@@ -122,37 +121,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
-    // ── Tier 1: AI analysis ────────────────────────────────────────────────
-    let audit: any = null;
-
-    try {
-      audit = await completeJson(CORE_SYSTEM_PROMPT, javaCode, { maxTokens: 1800 });
-      if (audit && (!audit.architecture_summary || !Array.isArray(audit.detected_stack))) {
-        audit = null;
-      }
-    } catch (llmErr) {
-      console.warn("AI analysis failed in /analyze/core, falling back to static analysis:", llmErr);
-      audit = null;
+    // ── Primary AI Analysis (Live Model Execution) ─────────────────────────
+    const audit: any = await completeJson(CORE_SYSTEM_PROMPT, javaCode, { maxTokens: 4096 });
+    if (!audit || typeof audit !== "object" || !audit.architecture_summary) {
+      return res.status(502).json({
+        error: "AI Architecture analysis failed to generate structured audit output. No predefined fallback allowed.",
+      });
     }
 
-    // ── Tier 2: Static analysis (real analysis, not predefined data) ───────
-    if (!audit) {
-      const detectedStack = detectJavaStack(javaCode);
-      const detectedUsages = detectJavaDeprecatedUsages(javaCode, fileName);
-      const classNames = [...(javaCode.matchAll(/(?:public\s+)?class\s+(\w+)/g))].map(m => m[1]);
-      const nodes = classNames.length > 0 ? classNames : [fileName.replace(/\.java$/, "")];
-      const edges = nodes.length > 1
-        ? nodes.slice(0, -1).map((n: string, i: number) => ({ from: n, to: nodes[i + 1] }))
-        : [];
-
-      audit = {
-        architecture_summary: `Static analysis of '${fileName}'. Detected ${classNames.length} class(es), ${detectedUsages.length} deprecated pattern(s). ${!process.env.NVIDIA_API_KEY && !process.env.AIML_API_KEY ? "Note: AI analysis unavailable — configure NVIDIA_API_KEY or AIML_API_KEY for deeper insights." : "AI analysis returned no result — falling back to static scan."}`,
-        detected_stack: detectedStack,
-        deprecated_usages: detectedUsages,
-        dependency_graph: { nodes, edges },
-        diagrams: generateDetailedMermaidDiagrams(javaCode, fileName),
-        confidence: 0.88,
-      };
+    // Ensure detailed Mermaid diagrams are populated
+    if (!audit.diagrams || audit.diagrams.length === 0) {
+      audit.diagrams = generateDetailedMermaidDiagrams(javaCode, fileName);
     }
 
     // ── Persist to DB if project_id provided ──────────────────────────────
@@ -186,7 +165,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (audit) {
       audit.java_code = javaCode;
-      audit.rust_code = generateRustCodeFromJava(javaCode, "step-1");
+      let existingRust = "";
+      if (project_id) {
+        try {
+          const latestTx = await prisma.transformation.findFirst({
+            where: { projectId: project_id, status: "completed" },
+            orderBy: { createdAt: "desc" },
+          });
+          if (latestTx?.transformedRustCode) {
+            existingRust = latestTx.transformedRustCode;
+          }
+        } catch {}
+      }
+      audit.rust_code = existingRust;
     }
 
     return res.status(200).json(audit);

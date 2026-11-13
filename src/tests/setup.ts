@@ -37,6 +37,9 @@ globalThis.fetch = async function (input: RequestInfo | URL, init?: RequestInit)
     } catch (err) {
       console.warn(`NVIDIA/AIML API call failed (${err}). Falling back to mock response.`);
     }
+  }
+
+  if (url.includes("integrate.api.nvidia.com") || url.includes("api.aimlapi.com") || url.includes("ai/chat")) {
 
     // Generate high-fidelity mock responses matching test expectations
     let bodyText = "";
@@ -62,25 +65,12 @@ globalThis.fetch = async function (input: RequestInfo | URL, init?: RequestInit)
         architecture_summary: "Payment controller using Spring Boot RestController with processPayment endpoint.",
         confidence: 0.95,
       });
-    } else if (systemPrompt.includes("Code Migration Engine")) {
-      content = `
-// Migrated from Java to Rust Axum
-use axum::{routing::post, Router, extract::Form};
-use serde::Deserialize;
-
-#[derive(Deserialize)]
-pub struct PaymentRequest {
-    amount: String,
-}
-
-pub async fn process_payment(Form(req): Form<PaymentRequest>) -> String {
-    format!("Payment processed for: {}", req.amount)
-}
-
-pub fn app() -> Router {
-    Router::new().route("/api/v1/pay", post(process_payment))
-}
-      `.trim();
+    } else if (systemPrompt.toUpperCase().includes("CODE MIGRATION ENGINE") || systemPrompt.includes("Rust Axum")) {
+      const userPrompt = messages.find((m: any) => m.role === "user")?.content || "";
+      const javaMatch = userPrompt.match(/(?:public\s+)?(?:class|interface|record)\s+[\s\S]*/);
+      const codeToConvert = javaMatch ? javaMatch[0] : userPrompt;
+      const { generateRustCodeFromJava } = await import("../server/rustGenerator.js");
+      content = generateRustCodeFromJava(codeToConvert);
     } else if (systemPrompt.includes("Blueprint Agent")) {
       content = JSON.stringify({
         project_id: "billing-service",

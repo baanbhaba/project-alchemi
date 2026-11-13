@@ -1,11 +1,4 @@
 import type { CoreAudit, ImpactAudit, Blueprint } from "../types/contracts";
-import {
-  detectJavaStack,
-  detectJavaDeprecatedUsages,
-  detectJavaImpactAudit,
-  generateDetailedMermaidDiagrams,
-} from "../lib/analysis";
-import { generateRustCodeFromJava } from "./transform";
 
 // All AI calls go through /api/v1/ai/chat — a server-side proxy that holds
 // the actual API key. No key is ever exposed to the browser.
@@ -18,111 +11,31 @@ const extractJsonBlock = (rawText: string): string => {
   return text;
 };
 
-/**
- * Client-side synthesis fallback if proxy is unreachable or network drops.
- */
-function synthesizeClientAi(messages: { role: string; content: string }[]): string {
-  const sysMsg = messages.find((m) => m.role === "system")?.content || "";
-  const userMsg = messages.filter((m) => m.role === "user").map((m) => m.content).join("\n\n");
+async function callAiProxy(messages: { role: string; content: string }[], max_tokens = 4096): Promise<string> {
+  const res = await fetch(AI_PROXY, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "minimaxai/minimax-m3.1-flash",
+      messages,
+      temperature: 0.1,
+      max_tokens,
+    }),
+  });
 
-  if (sysMsg.includes("Core Analysis Agent") || sysMsg.includes("CoreAudit")) {
-    const classNames = [...userMsg.matchAll(/(?:public\s+)?(?:class|interface|enum)\s+(\w+)/g)].map((m) => m[1]);
-    const detectedStack = detectJavaStack(userMsg);
-    const deprecatedUsages = detectJavaDeprecatedUsages(userMsg, "Main.java");
-    const primaryClass = classNames[0] || "PaymentGateway";
-
-    const nodes = classNames.length > 0 ? classNames : [primaryClass];
-    const edges = nodes.length > 1
-      ? nodes.slice(0, -1).map((n, i) => ({ from: n, to: nodes[i + 1] }))
-      : [];
-
-    return JSON.stringify({
-      architecture_summary: `Deep architectural inspection of Java source '${primaryClass}'. Detected ${classNames.length || 1} core class unit(s), ${detectedStack.length} runtime stack component(s), and ${deprecatedUsages.length} legacy API usage(s) requiring memory-safe Rust modernization.`,
-      detected_stack: detectedStack,
-      deprecated_usages: deprecatedUsages,
-      dependency_graph: { nodes, edges },
-      diagrams: generateDetailedMermaidDiagrams(userMsg, primaryClass),
-      confidence: 0.95,
-    });
+  if (!res.ok) {
+    const errData = await res.json().catch(() => null);
+    const errMsg = errData?.error || `AI API returned status ${res.status}`;
+    throw new Error(`AI service failure: ${errMsg}`);
   }
 
-  if (sysMsg.includes("Impact Analysis Agent") || sysMsg.includes("ImpactAudit") || sysMsg.includes("breaking changes")) {
-    const impact = detectJavaImpactAudit(userMsg, "Main.java");
-    return JSON.stringify(impact);
+  const data = await res.json();
+  const content = data.choices?.[0]?.message?.content;
+  if (!content || typeof content !== "string" || !content.trim()) {
+    throw new Error("AI service returned empty response. No output from model.");
   }
 
-  if (sysMsg.includes("Blueprint Agent") || sysMsg.includes("Blueprint")) {
-    const classNames = [...userMsg.matchAll(/(?:public\s+)?(?:class|interface|enum)\s+(\w+)/g)].map((m) => m[1]);
-    const primaryClass = classNames[0] || "Main";
-    return JSON.stringify({
-      project_id: "blueprint-active",
-      steps: [
-        {
-          id: "step-1",
-          file_or_module: `${primaryClass}.java`,
-          what_changes: "Extract Java data models and convert to Rust serde structs with zero-copy deserialization",
-          why: "Rust compile-time memory layout eliminates JVM heap allocation overhead and garbage collection pauses",
-          target_pattern: "#[derive(Debug, Clone, Serialize, Deserialize)]",
-          risk_level: "low",
-          depends_on: [],
-          status: "pending",
-        },
-        {
-          id: "step-2",
-          file_or_module: `${primaryClass}Service.java`,
-          what_changes: "Migrate service business logic to async Rust functions using tokio and async-trait",
-          why: "Converts thread-per-request blocking execution into cooperative non-blocking task execution",
-          target_pattern: "pub async fn execute() -> Result<Response, ServiceError>",
-          risk_level: "medium",
-          depends_on: ["step-1"],
-          status: "pending",
-        },
-        {
-          id: "step-3",
-          file_or_module: `${primaryClass}Controller.java`,
-          what_changes: "Map Spring RestController HTTP endpoints to Rust Axum routing tree with tower middleware",
-          why: "Provides high-throughput, low-latency HTTP serving with compile-time route validation",
-          target_pattern: "Router::new().route(\"/api/v1/...\", post(handler))",
-          risk_level: "medium",
-          depends_on: ["step-2"],
-          status: "pending",
-        },
-      ],
-    });
-  }
-
-  if (sysMsg.includes("Code Migration Engine") || sysMsg.includes("Rust Axum")) {
-    return generateRustCodeFromJava(userMsg, "step-1");
-  }
-
-  return "ALCHEMI Neural AI Engine response: The Java codebase has been inspected and validated.";
-}
-
-async function callAiProxy(messages: { role: string; content: string }[], max_tokens = 900): Promise<string> {
-  try {
-    const res = await fetch(AI_PROXY, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: "minimaxai/minimax-m3.1-flash",
-        messages,
-        temperature: 0.1,
-        max_tokens,
-      }),
-    });
-
-    if (res.ok) {
-      const data = await res.json();
-      const content = data.choices?.[0]?.message?.content;
-      if (content && typeof content === "string" && content.trim()) {
-        return content;
-      }
-    }
-  } catch (err) {
-    console.warn("callAiProxy network call failed, invoking intelligent client synthesis:", err);
-  }
-
-  return synthesizeClientAi(messages);
+  return content;
 }
 
 export const analyzeCoreWithNvidia = async (

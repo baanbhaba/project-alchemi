@@ -10,7 +10,7 @@ import {
   detectJavaImpactAudit,
 } from "../../../src/lib/analysis.js";
 import { normalizeCoreAudit, normalizeImpactAudit, refreshProjectReadiness } from "../../../src/server/auditMapping.js";
-import { generateRustCodeFromJava } from "../../../src/server/rustGenerator.js";
+import { completeText, MIGRATION_SYSTEM_PROMPT } from "../../../src/server/llm.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const { id, route, stepId } = req.query;
@@ -71,8 +71,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (!core) {
           const detectedStack = detectJavaStack(source);
           const deprecatedUsages = detectJavaDeprecatedUsages(source, fileName);
-          const transformedRust = generateRustCodeFromJava(source, "step-1");
-          const diagrams = generateDetailedMermaidDiagrams(source, project.name, transformedRust);
+          const diagrams = generateDetailedMermaidDiagrams(source, project.name);
           const newCore: any = {
             id: `core-${project.id}`,
             projectId: project.id,
@@ -312,8 +311,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (!project) return res.status(404).json({ error: "Project not found" });
 
       const primarySource = project.uploadedSources[0];
-      const rawJavaCode = primarySource ? primarySource.rawCode : "public class Main {}";
-      const targetRustCode = generateRustCodeFromJava(rawJavaCode, transformStepId || "step-1");
+      const rawJavaCode = primarySource ? primarySource.rawCode : "";
+      if (!rawJavaCode.trim()) {
+        return res.status(400).json({ error: "No Java source code uploaded for this project." });
+      }
+
+      let targetRustCode: string;
+      try {
+        targetRustCode = await completeText(
+          MIGRATION_SYSTEM_PROMPT,
+          `Directly convert the following Java code into pure, idiomatic Rust code with zero comments, zero markdown fences, and zero explanatory notes. Output pure Rust code only:\n\n${rawJavaCode}`
+        );
+      } catch (aiErr: any) {
+        console.error("AI code transformation failed:", aiErr);
+        return res.status(502).json({
+          error: "AI Migration Engine failed: " + (aiErr?.message || "Upstream model error"),
+        });
+      }
 
       const transformation = await prisma.transformation.create({
         data: {
@@ -322,7 +336,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           status: "completed",
           rawJavaCode,
           transformedRustCode: targetRustCode,
-          modelUsed: "meta/llama-3.2-11b-vision-instruct",
+          modelUsed: "minimaxai/minimax-m3.1-flash",
         },
       });
 
@@ -360,6 +374,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           impactAudit: true,
           uploadedSources: true,
           blueprint: { include: { steps: { orderBy: { stepNumber: "asc" } } } },
+          transformations: { orderBy: { createdAt: "desc" } },
         },
       });
       if (!project) return res.status(404).json({ error: "Project not found" });
@@ -367,6 +382,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const primarySource = project.uploadedSources[0];
       const rawJava = primarySource ? primarySource.rawCode : `public class ${project.name.replace(/[^a-zA-Z0-9_]/g, "")} {}`;
       const primaryFile = primarySource ? primarySource.fileName : `${project.name}.java`;
+      const latestRust = project.transformations?.[0]?.transformedRustCode || "";
 
       const coreAudit = project.coreAudit
         ? (typeof project.coreAudit === "string" ? JSON.parse(project.coreAudit) : project.coreAudit)
@@ -396,7 +412,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           fileOrModule: primaryFile,
           whatChanges: "Migrate REST Controller and domain model",
           why: "Modernize to Rust Tokio / Axum",
-          targetPattern: generateRustCodeFromJava(rawJava, "step-1"),
+          targetPattern: latestRust,
           riskLevel: "medium",
           status: "pending",
         },
@@ -410,7 +426,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           pattern.includes("Click 'Transform Step'") ||
           (pattern.includes("pub struct ") && pattern.includes("Handler {\n"));
 
-        const rustCode = !isGenericPlaceholder ? pattern : generateRustCodeFromJava(rawJava, s.id || "step-1");
+        const rustCode = !isGenericPlaceholder ? pattern : latestRust;
         const javaLines = rawJava.split("\n");
         const rustLines = rustCode.split("\n");
 
@@ -466,7 +482,7 @@ ${configImpactNotes || "- Restore application.properties / application.yml confi
           diagrams: coreAudit.diagrams || [],
           confidence: coreAudit.confidence || 0.95,
           java_code: rawJava,
-          rust_code: generateRustCodeFromJava(rawJava, "step-1"),
+          rust_code: latestRust,
         },
         impact_audit: {
           api_surface: impactAudit.api_surface || impactAudit.apiSurface || [],
@@ -516,13 +532,14 @@ ${configImpactNotes || "- Restore application.properties / application.yml confi
       
       const primarySource = project.uploadedSources?.[0];
       const rawJava = primarySource ? primarySource.rawCode : "";
+      const latestRust = project.transformations?.[0]?.transformedRustCode || "";
       
       let finalCoreAudit = project.coreAudit;
       if (finalCoreAudit) {
         finalCoreAudit = {
           ...(typeof finalCoreAudit === "string" ? JSON.parse(finalCoreAudit as string) : finalCoreAudit),
           java_code: rawJava,
-          rust_code: generateRustCodeFromJava(rawJava, "step-1"),
+          rust_code: latestRust,
         } as any;
       }
       let finalBlueprint = project.blueprint;

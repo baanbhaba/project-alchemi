@@ -3,7 +3,7 @@ import { MigrationReportSchema } from "../types/contracts";
 import { fetchApi } from "./client";
 import { getCoreAudit, getImpactAudit, getProjectSourceCode, generateDetailedMermaidDiagrams } from "./project";
 import { getBlueprint } from "./review";
-import { generateRustCodeFromJava, getTransformedCode } from "./transform";
+import { getTransformedCode } from "./transform";
 import { sanitizeRustCode } from "../utils/exportRustCode";
 
 export const getMigrationReport = async (projectId: string): Promise<MigrationReport> => {
@@ -65,7 +65,7 @@ export const getMigrationReport = async (projectId: string): Promise<MigrationRe
         ? accumulatedCode
         : !isGenericPlaceholder
         ? sanitizeRustCode(s.target_pattern)
-        : generateRustCodeFromJava(rawJava, s.id);
+        : "";
 
       const javaLines = rawJava.split("\n");
       const rustLines = rustCode.split("\n");

@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { prisma } from "../../src/lib/prisma.js";
-import { detectJavaImpactAudit, generateDetailedMermaidDiagrams } from "../../src/lib/analysis.js";
+import { generateDetailedMermaidDiagrams } from "../../src/lib/analysis.js";
 import { completeJson } from "../../src/server/llm.js";
 import { refreshProjectReadiness } from "../../src/server/auditMapping.js";
 
@@ -103,22 +103,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
-    // ── Tier 1: AI analysis ────────────────────────────────────────────────
-    let audit: any = null;
-
-    try {
-      audit = await completeJson(IMPACT_SYSTEM_PROMPT, javaCode, { maxTokens: 1800 });
-      if (audit && !Array.isArray(audit.api_surface)) {
-        audit = null;
-      }
-    } catch (llmErr) {
-      console.warn("AI analysis failed in /analyze/impact, falling back to static analysis:", llmErr);
-      audit = null;
-    }
-
-    // ── Tier 2: Static impact analysis on real uploaded code ───────────────
-    if (!audit) {
-      audit = detectJavaImpactAudit(javaCode, fileName);
+    // ── Primary AI Impact & Blast Radius Analysis ──────────────────────────
+    const audit: any = await completeJson(IMPACT_SYSTEM_PROMPT, javaCode, { maxTokens: 4096 });
+    if (!audit || typeof audit !== "object" || !Array.isArray(audit.api_surface)) {
+      return res.status(502).json({
+        error: "AI Impact analysis failed to generate structured impact output. No predefined fallback allowed.",
+      });
     }
 
     if (!audit.diagrams || audit.diagrams.length === 0) {
