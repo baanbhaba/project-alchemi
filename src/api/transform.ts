@@ -60,55 +60,13 @@ export const isJavaSourceCode = (code: string): boolean => {
   return javaPattern.test(code);
 };
 
-export const generateRustCodeFromJava = (javaCode: string, _stepId: string): string => {
+export const generateRustCodeFromJava = (javaCode: string, _stepId?: string): string => {
   if (!javaCode || javaCode.trim().length === 0 || !isJavaSourceCode(javaCode)) {
     return `// ERROR: Invalid input. Please provide valid Java source code for legacy migration.`;
   }
 
   const classMatch = javaCode.match(/(?:public\s+)?class\s+([A-Za-z0-9_]+)/) || javaCode.match(/class\s+([A-Za-z0-9_]+)/);
   const className = classMatch ? classMatch[1] : "MigratedService";
-
-  const isMainApp = javaCode.includes("static void main") || javaCode.includes("public static void main");
-
-  if (isMainApp) {
-    return `use std::io::{self, Write};
-
-pub struct ${className}Service {
-    pub name: String,
-}
-
-impl ${className}Service {
-    pub fn new(name: impl Into<String>) -> Self {
-        Self {
-            name: name.into(),
-        }
-    }
-
-    pub fn run(&self) {
-        println!("🚀 Executing migrated {} engine...", self.name);
-    }
-}
-
-fn main() {
-    print!("Enter service instance name: ");
-    io::stdout().flush().unwrap();
-
-    let mut input = String::new();
-    io::stdin().read_line(&mut input).unwrap();
-
-    let service_name = if input.trim().is_empty() {
-        "${className}".to_string()
-    } else {
-        input.trim().to_string()
-    };
-
-    let service = ${className}Service::new(service_name);
-    service.run();
-}`;
-  }
-
-  // Parse Spring Boot / REST controller annotations & endpoints
-  const isRestController = javaCode.includes("@RestController") || javaCode.includes("@RequestMapping") || javaCode.includes("@GetMapping") || javaCode.includes("@PostMapping");
 
   // Extract fields from Java class: e.g. private String paymentId; private double amount;
   const fieldMatches = [...javaCode.matchAll(/(?:private|protected|public)\s+([A-Za-z0-9_<>]+)\s+([A-Za-z0-9_]+);/g)];
@@ -133,6 +91,51 @@ fn main() {
       return { name: methodName, returnType };
     })
     .filter((m) => m.name !== "main" && !m.name.startsWith("_"));
+
+  const isMainApp = javaCode.includes("static void main") || javaCode.includes("public static void main");
+  const isRestController = javaCode.includes("@RestController") || javaCode.includes("@RequestMapping") || javaCode.includes("@GetMapping") || javaCode.includes("@PostMapping");
+
+  if (isMainApp) {
+    const rustFields = fields.length > 0
+      ? fields.map((f) => `    pub ${f.name}: ${f.rustType},`).join("\n")
+      : `    pub name: String,`;
+
+    const rustInit = fields.length > 0
+      ? fields.map((f) => `            ${f.name}: ${f.rustType === "String" ? 'String::new()' : f.rustType === "bool" ? 'false' : f.rustType.startsWith("Vec") ? 'Vec::new()' : '0'}`).join(",\n")
+      : `            name: "${className}".to_string()`;
+
+    const rustMethods = methods.map((m) => {
+      return `    pub fn ${m.name}(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        println!("Executed ${m.name} in ${className}");
+        Ok(())
+    }`;
+    }).join("\n\n");
+
+    const execCalls = methods.map((m) => `    app.${m.name}()?;`).join("\n");
+
+    return `#[derive(Debug, Clone)]
+pub struct ${className} {
+${rustFields}
+}
+
+impl ${className} {
+    pub fn new() -> Self {
+        Self {
+${rustInit}
+        }
+    }
+
+${rustMethods || `    pub fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {\n        println!("Running ${className} service...");\n        Ok(())\n    }`}
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    println!("Starting ${className} service...");
+    let mut app = ${className}::new();
+${execCalls || `    app.run()?;`}
+    println!("Execution completed successfully.");
+    Ok(())
+}`;
+  }
 
   if (isRestController) {
     const rustFields = fields.length > 0

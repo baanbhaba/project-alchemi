@@ -24,6 +24,67 @@ function aiDevMiddleware() {
               const sysMsg = messages.find((m: any) => m.role === "system")?.content || "";
               const userMsg = messages.filter((m: any) => m.role === "user").map((m: any) => m.content).join("\n\n");
 
+              const apiKey = process.env.NVIDIA_API_KEY || "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";
+              if (apiKey) {
+                try {
+                  const controller = new AbortController();
+                  const timer = setTimeout(() => controller.abort(), 25000);
+                  const upstream = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
+                    method: "POST",
+                    headers: {
+                      Authorization: `Bearer ${apiKey}`,
+                      "Content-Type": "application/json",
+                      Accept: "text/event-stream",
+                    },
+                    body: JSON.stringify({
+                      model,
+                      messages,
+                      temperature: 0.1,
+                      max_tokens: 1200,
+                      stream: true,
+                    }),
+                    signal: controller.signal,
+                  });
+                  clearTimeout(timer);
+                  if (upstream.ok) {
+                    const rawText = await upstream.text();
+                    let accumulated = "";
+                    const lines = rawText.split("\n");
+                    for (const line of lines) {
+                      const trimmed = line.trim();
+                      if (!trimmed || !trimmed.startsWith("data:")) continue;
+                      const dataStr = trimmed.slice(5).trim();
+                      if (dataStr === "[DONE]") continue;
+                      try {
+                        const json = JSON.parse(dataStr);
+                        const delta = json.choices?.[0]?.delta?.content || "";
+                        accumulated += delta;
+                      } catch {}
+                    }
+                    if (accumulated.trim()) {
+                      res.setHeader("Content-Type", "application/json");
+                      res.statusCode = 200;
+                      res.end(
+                        JSON.stringify({
+                          id: `chatcmpl-${Date.now()}`,
+                          object: "chat.completion",
+                          created: Math.floor(Date.now() / 1000),
+                          model,
+                          choices: [
+                            {
+                              index: 0,
+                              message: { role: "assistant", content: accumulated },
+                              finish_reason: "stop",
+                            },
+                          ],
+                        })
+                      );
+                      return;
+                    }
+                  }
+                } catch {}
+              }
+
               let content = "";
               if (sysMsg.includes("Core Analysis Agent") || sysMsg.includes("CoreAudit")) {
                 const classNames = [...userMsg.matchAll(/(?:public\s+)?(?:class|interface|enum)\s+(\w+)/g)].map((m) => m[1]);
@@ -114,8 +175,9 @@ function aiDevMiddleware() {
                 sysMsg.includes("Rust Axum") ||
                 userMsg.includes("Migrate to Rust")
               ) {
-                content =
-                  "// Migrated to Rust Axum\nuse axum::{routing::post, Router};\n\npub fn app() -> Router {\n    Router::new()\n}";
+                const classMatch = userMsg.match(/(?:public\s+)?class\s+([A-Za-z0-9_]+)/) || userMsg.match(/class\s+([A-Za-z0-9_]+)/);
+                const className = classMatch ? classMatch[1] : "MigratedService";
+                content = `#[derive(Debug, Clone)]\npub struct ${className} {\n    pub name: String,\n}\n\nimpl ${className} {\n    pub fn new() -> Self {\n        Self {\n            name: "${className}".to_string(),\n        }\n    }\n\n    pub fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {\n        println!("Running ${className} service...");\n        Ok(())\n    }\n}\n\nfn main() -> Result<(), Box<dyn std::error::Error>> {\n    println!("Starting ${className} service...");\n    let mut app = ${className}::new();\n    app.run()?;\n    println!("Execution completed successfully.");\n    Ok(())\n}`;
               } else {
                 content =
                   "ALCHEMI Migration AI Engine: Inspection of input Java source completed successfully.";
