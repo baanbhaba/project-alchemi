@@ -51,12 +51,16 @@ public class BillingController {
 
   // 1. One migration request produces one stored artifact
   it("Requirement 1: One migration request produces one stored artifact", async () => {
+    const fw = detectFramework(sampleJavaBillingController);
+    expect(fw.target).toContain("Axum");
+
     const projectId = "proj-req-1";
     const context = await executeUnifiedMigration(
       projectId,
       sampleJavaBillingController,
       { fileName: "BillingController.java" }
     );
+
 
     expect(context).toBeDefined();
     expect(context.project_id).toBe(projectId);
@@ -253,7 +257,18 @@ pub fn create_router() -> Router {
 
     // Verify syntax validator succeeded independently
     expect(results.syntax_compilation.status).toBe("passed");
+
+    // Verify individual validator functions directly
+    const directArch = validateArchitectureAndFramework(javaSource, validRust);
+    expect(directArch.agent).toBe("architecture_framework");
+
+    const directSec = validateSecurity(validRust, javaSource);
+    expect(directSec.agent).toBe("security");
+
+    const directComp = validateMigrationCompleteness(javaSource, validRust);
+    expect(directComp.agent).toBe("migration_completeness");
   });
+
 
   // 8. Readiness scores reflect critical failures
   it("Requirement 8: Readiness scores reflect critical failures", () => {
