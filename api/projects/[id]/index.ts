@@ -1,9 +1,9 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { prisma } from "../../../src/lib/prisma";
-import { mapProjectToSummary } from "../../../src/server/projectMapping";
-import { calculateReadinessScore, calculateConsensus } from "../../../src/lib/analysis";
-import { normalizeCoreAudit, normalizeImpactAudit, refreshProjectReadiness } from "../../../src/server/auditMapping";
-import { generateRustCodeFromJava } from "../../../src/api/transform";
+import { prisma } from "../../../src/lib/prisma.js";
+import { mapProjectToSummary } from "../../../src/server/projectMapping.js";
+import { calculateReadinessScore, calculateConsensus } from "../../../src/lib/analysis.js";
+import { normalizeCoreAudit, normalizeImpactAudit, refreshProjectReadiness } from "../../../src/server/auditMapping.js";
+import { generateRustCodeFromJava } from "../../../src/server/rustGenerator.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const { id, route, stepId } = req.query;

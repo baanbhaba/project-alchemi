@@ -1,5 +1,5 @@
-import { prisma } from "../../src/lib/prisma";
-import { calculateReadinessScore } from "../../src/lib/analysis";
+import { prisma } from "../lib/prisma.js";
+import { calculateReadinessScore } from "../lib/analysis.js";
 
 function toSnakeKey(key: string): string {
   return key.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);

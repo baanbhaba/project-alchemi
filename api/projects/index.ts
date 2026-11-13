@@ -1,13 +1,13 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { prisma } from "../../src/lib/prisma";
-import { generateRustCodeFromJava } from "../../src/api/transform";
-import { mapProjectToSummary } from "../../src/server/projectMapping";
+import { prisma } from "../../src/lib/prisma.js";
+import { generateRustCodeFromJava } from "../../src/server/rustGenerator.js";
+import { mapProjectToSummary } from "../../src/server/projectMapping.js";
 import {
   detectJavaStack,
   detectJavaDeprecatedUsages,
   detectJavaImpactAudit,
   calculateReadinessScore,
-} from "../../src/lib/analysis";
+} from "../../src/lib/analysis.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === "GET") {

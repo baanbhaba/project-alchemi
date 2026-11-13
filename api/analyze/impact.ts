@@ -1,8 +1,8 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { prisma } from "../../src/lib/prisma";
-import { detectJavaImpactAudit } from "../../src/lib/analysis";
-import { completeJson } from "../../src/server/llm";
-import { refreshProjectReadiness } from "../../src/server/auditMapping";
+import { prisma } from "../../src/lib/prisma.js";
+import { detectJavaImpactAudit } from "../../src/lib/analysis.js";
+import { completeJson } from "../../src/server/llm.js";
+import { refreshProjectReadiness } from "../../src/server/auditMapping.js";
 
 const IMPACT_SYSTEM_PROMPT = `You are the IMPACT ANALYSIS AGENT in ALCHEMI (Automated Legacy Code Transformation Engine).
 Your job is to assess the BLAST RADIUS of migrating the given Java source to Rust — what

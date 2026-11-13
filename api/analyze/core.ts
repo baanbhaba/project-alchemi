@@ -1,9 +1,9 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { prisma } from "../../src/lib/prisma";
-import { detectJavaStack, detectJavaDeprecatedUsages } from "../../src/lib/analysis";
-import { completeJson } from "../../src/server/llm";
-import { refreshProjectReadiness } from "../../src/server/auditMapping";
-import { generateRustCodeFromJava } from "../../src/api/transform";
+import { prisma } from "../../src/lib/prisma.js";
+import { detectJavaStack, detectJavaDeprecatedUsages } from "../../src/lib/analysis.js";
+import { completeJson } from "../../src/server/llm.js";
+import { refreshProjectReadiness } from "../../src/server/auditMapping.js";
+import { generateRustCodeFromJava } from "../../src/server/rustGenerator.js";
 
 const CORE_SYSTEM_PROMPT = `You are the CORE ANALYSIS AGENT in ALCHEMI (Automated Legacy Code Transformation Engine),
 a multi-agent system that migrates legacy Java codebases to idiomatic Rust.

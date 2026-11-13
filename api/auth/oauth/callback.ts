@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { prisma } from "../../../src/lib/prisma";
+import { prisma } from "../../../src/lib/prisma.js";
 import { randomUUID, randomBytes } from "node:crypto";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {

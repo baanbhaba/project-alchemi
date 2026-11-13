@@ -430,5 +430,3 @@ export function calculateConsensus(
   };
 }
 
-export { calculateVerificationReadiness } from "./verification";
-

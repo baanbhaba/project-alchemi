@@ -1,6 +1,21 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { randomUUID } from "node:crypto";
-import { hashPassword, verifyPassword } from "../../src/lib/password";
+import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
+
+function hashPassword(password: string): string {
+  const salt = randomBytes(16).toString("hex");
+  const hash = scryptSync(password, salt, 64).toString("hex");
+  return `${salt}:${hash}`;
+}
+
+function verifyPassword(password: string, stored: string): boolean {
+  const parts = stored.split(":");
+  const salt = parts[0];
+  const hash = parts[1];
+  if (!salt || !hash) return false;
+  const candidate = scryptSync(password, salt, 64);
+  const expected = Buffer.from(hash, "hex");
+  return candidate.length === expected.length && timingSafeEqual(candidate, expected);
+}
 
 /**
  * POST /api/v1/auth/login
