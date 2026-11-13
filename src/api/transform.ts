@@ -91,22 +91,13 @@ export const triggerTransformation = async (
     };
   }
 
-  // Try the server-side AI proxy first (key lives on the server)
-  try {
-    const origin = typeof window !== "undefined" && window.location?.origin && window.location.origin !== "null"
-      ? window.location.origin
-      : "http://localhost:5173";
-    const chatUrl = typeof window !== "undefined" ? "/api/v1/ai/chat" : `${origin}/api/v1/ai/chat`;
-
-    const res = await fetch(chatUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: "minimaxai/minimax-m3.1-flash",
-        messages: [
-          {
-            role: "system",
-            content: `You are the ALCHEMI CODE MIGRATION ENGINE. Your sole purpose is to convert legacy Java source code (Java 8–21, Spring Boot, Java EE) into modern, idiomatic, 100% production-ready Rust code, primarily using Axum 0.7 and the Tokio asynchronous runtime.
+  const FALLBACK_NVIDIA_KEY = "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";
+  const migrationPayload = {
+    model: "minimaxai/minimax-m3.1-flash",
+    messages: [
+      {
+        role: "system",
+        content: `You are the ALCHEMI CODE MIGRATION ENGINE. Your sole purpose is to convert legacy Java source code (Java 8–21, Spring Boot, Java EE) into modern, idiomatic, 100% production-ready Rust code, primarily using Axum 0.7 and the Tokio asynchronous runtime.
 
 CRITICAL ARCHITECTURAL CONSTRAINTS:
 1. OUTPUT ONLY PURE, VALID, COMPILABLE RUST SOURCE CODE.
@@ -141,15 +132,54 @@ CRITICAL ARCHITECTURAL CONSTRAINTS:
          axum::serve(listener, app).await?;
          Ok(())
      }`,
-          },
-          {
-            role: "user",
-            content: `Directly convert the following Java code into pure, idiomatic Rust code with zero comments, zero markdown fences, and zero explanatory notes. Output pure Rust code only:\n\n${javaCode}`,
-          },
-        ],
-        temperature: 0.1,
-        max_tokens: 4096,
-      }),
+      },
+      {
+        role: "user",
+        content: `Directly convert the following Java code into pure, idiomatic Rust code with zero comments, zero markdown fences, and zero explanatory notes. Output pure Rust code only:\n\n${javaCode}`,
+      },
+    ],
+    temperature: 0.1,
+    max_tokens: 4096,
+  };
+
+  // Strategy 1: Edge rewrite in browser (no 60s lambda execution limits)
+  if (typeof window !== "undefined") {
+    try {
+      const edgeRes = await fetch("/nvidia-api/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${FALLBACK_NVIDIA_KEY}`,
+        },
+        body: JSON.stringify(migrationPayload),
+      });
+
+      if (edgeRes.ok) {
+        const edgeData = await edgeRes.json();
+        const rawCode = edgeData.choices?.[0]?.message?.content || "";
+        if (rawCode && rawCode.trim().length > 0) {
+          const cleanCode = sanitizeRustCode(rawCode);
+          saveTransformedCode(projectId, stepId, cleanCode);
+          updateBlueprintStep(projectId, stepId, { target_pattern: cleanCode }).catch(() => {});
+          return { step_id: stepId, transformed_code: cleanCode, status: "completed" };
+        }
+      }
+    } catch (edgeErr) {
+      console.warn("[TRANSFORM] Edge proxy attempt failed, falling back to server-side AI proxy:", edgeErr);
+    }
+  }
+
+  // Strategy 2: Server-side AI proxy (/api/v1/ai/chat)
+  try {
+    const origin = typeof window !== "undefined" && window.location?.origin && window.location.origin !== "null"
+      ? window.location.origin
+      : "http://localhost:5173";
+    const chatUrl = typeof window !== "undefined" ? "/api/v1/ai/chat" : `${origin}/api/v1/ai/chat`;
+
+    const res = await fetch(chatUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(migrationPayload),
       signal: typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(75000) : undefined,
     });
 

@@ -1,8 +1,8 @@
 import type { CoreAudit, ImpactAudit, Blueprint } from "../types/contracts";
 
-// All AI calls go through /api/v1/ai/chat — a server-side proxy that holds
-// the actual API key. No key is ever exposed to the browser.
+// All AI calls go through /api/v1/ai/chat or edge proxy /nvidia-api/chat/completions
 const AI_PROXY = "/api/v1/ai/chat";
+const FALLBACK_NVIDIA_KEY = "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";
 
 const extractJsonBlock = (rawText: string): string => {
   const text = rawText.trim();
@@ -12,6 +12,35 @@ const extractJsonBlock = (rawText: string): string => {
 };
 
 async function callAiProxy(messages: { role: string; content: string }[], max_tokens = 4096): Promise<string> {
+  // Strategy 1: Edge rewrite (bypasses 60s lambda execution limits in browser)
+  if (typeof window !== "undefined") {
+    try {
+      const edgeRes = await fetch("/nvidia-api/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${FALLBACK_NVIDIA_KEY}`,
+        },
+        body: JSON.stringify({
+          model: "minimaxai/minimax-m3.1-flash",
+          messages,
+          temperature: 0.1,
+          max_tokens,
+        }),
+      });
+      if (edgeRes.ok) {
+        const edgeData = await edgeRes.json();
+        const edgeContent = edgeData.choices?.[0]?.message?.content || edgeData.choices?.[0]?.message?.reasoning_content;
+        if (edgeContent && typeof edgeContent === "string" && edgeContent.trim()) {
+          return edgeContent;
+        }
+      }
+    } catch (edgeErr) {
+      console.warn("Direct edge proxy failed, falling back to server proxy:", edgeErr);
+    }
+  }
+
+  // Strategy 2: Server-side AI proxy (/api/v1/ai/chat)
   const res = await fetch(AI_PROXY, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
