@@ -1,4 +1,4 @@
-const DEFAULT_MODEL = "meta/llama-3.2-11b-vision-instruct";
+const DEFAULT_MODEL = "nvidia/llama-3.1-nemotron-70b-instruct";
 
 const FALLBACK_NVIDIA_KEY = "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";
 const FALLBACK_AIML_KEY = "a89e74ba7f517327fd7481a118053119";

