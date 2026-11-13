@@ -38,7 +38,7 @@ describe("Empirical Live NVIDIA NIM AI Model Verification", () => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "meta/llama-3.2-11b-vision-instruct",
+        model: "minimaxai/minimax-m3.1-flash",
         messages: [
           {
             role: "system",
@@ -70,7 +70,7 @@ describe("Empirical Live NVIDIA NIM AI Model Verification", () => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "meta/llama-3.2-11b-vision-instruct",
+        model: "minimaxai/minimax-m3.1-flash",
         messages: [
           {
             role: "system",

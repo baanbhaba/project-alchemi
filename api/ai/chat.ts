@@ -6,7 +6,7 @@ import {
 } from "../../src/lib/analysis";
 import { generateRustCodeFromJava } from "../../src/api/transform";
 
-const FALLBACK_NVIDIA_KEY = "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";
+const FALLBACK_NVIDIA_KEY = "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";
 const FALLBACK_AIML_KEY = "a89e74ba7f517327fd7481a118053119";
 
 /**
@@ -155,7 +155,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           Accept: "application/json",
         },
         body: JSON.stringify({
-          model: model || (useAiml ? "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo" : "nvidia/llama-3.1-nemotron-70b-instruct"),
+          model: model || (useAiml ? "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo" : "minimaxai/minimax-m3.1-flash"),
           messages,
           temperature: temperature ?? 0.1,
           max_tokens: max_tokens ?? 1200,

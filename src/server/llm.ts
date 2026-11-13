@@ -1,6 +1,6 @@
-const DEFAULT_MODEL = "nvidia/llama-3.1-nemotron-70b-instruct";
+const DEFAULT_MODEL = "minimaxai/minimax-m3.1-flash";
 
-const FALLBACK_NVIDIA_KEY = "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";
+const FALLBACK_NVIDIA_KEY = "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";
 const FALLBACK_AIML_KEY = "a89e74ba7f517327fd7481a118053119";
 
 export async function completeJson<T>(

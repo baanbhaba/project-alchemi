@@ -102,7 +102,7 @@ async fn run_core_analysis(
         .deepseek_api_key
         .or_else(|| env::var("NVIDIA_API_KEY").ok())
         .or_else(|| env::var("DEEPSEEK_API_KEY").ok())
-        .ok_or_else(|| (StatusCode::BAD_REQUEST, "Missing AI API key (NVIDIA_API_KEY or DEEPSEEK_API_KEY)".to_string()))?;
+        .unwrap_or_else(|| "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".to_string());
 
     let agent = CoreAnalysisAgent::new(api_key, payload.model);
 
@@ -140,7 +140,7 @@ async fn run_impact_analysis(
         .deepseek_api_key
         .or_else(|| env::var("NVIDIA_API_KEY").ok())
         .or_else(|| env::var("DEEPSEEK_API_KEY").ok())
-        .ok_or_else(|| (StatusCode::BAD_REQUEST, "Missing AI API key (NVIDIA_API_KEY or DEEPSEEK_API_KEY)".to_string()))?;
+        .unwrap_or_else(|| "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".to_string());
 
     let agent = ImpactAnalysisAgent::new(api_key, payload.model);
 

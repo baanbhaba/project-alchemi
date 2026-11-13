@@ -20,7 +20,7 @@ function aiDevMiddleware() {
                 parsedBody = JSON.parse(bodyStr);
               } catch {}
               const messages = parsedBody.messages || [];
-              const model = parsedBody.model || "nvidia/llama-3.1-nemotron-70b-instruct";
+              const model = parsedBody.model || "minimaxai/minimax-m3.1-flash";
               const sysMsg = messages.find((m: any) => m.role === "system")?.content || "";
               const userMsg = messages.filter((m: any) => m.role === "user").map((m: any) => m.content).join("\n\n");
 

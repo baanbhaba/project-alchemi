@@ -40,10 +40,14 @@ pub struct CoreAnalysisAgent {
 
 impl CoreAnalysisAgent {
     pub fn new(api_key: String, model: Option<String>) -> Self {
+        let client = Client::builder()
+            .timeout(std::time::Duration::from_secs(12))
+            .build()
+            .unwrap_or_default();
         Self {
-            client: Client::new(),
+            client,
             api_key,
-            model: model.unwrap_or_else(|| "nvidia/llama-3.1-nemotron-70b-instruct".to_string()),
+            model: model.unwrap_or_else(|| "minimaxai/minimax-m3.1-flash".to_string()),
         }
     }
 

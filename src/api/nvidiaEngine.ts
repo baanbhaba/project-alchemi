@@ -109,7 +109,7 @@ async function callAiProxy(messages: { role: string; content: string }[], max_to
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "nvidia/llama-3.1-nemotron-70b-instruct",
+        model: "minimaxai/minimax-m3.1-flash",
         messages,
         temperature: 0.1,
         max_tokens,
