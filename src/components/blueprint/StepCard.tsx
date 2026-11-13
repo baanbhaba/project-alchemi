@@ -1,5 +1,10 @@
 import React, { useEffect, useState, useRef } from "react";
-import type { BlueprintStep } from "../../types/contracts";
+import type {
+  BlueprintStep,
+  MigrationContext,
+  VerificationAgentType,
+  VerificationIssue,
+} from "../../types/contracts";
 import { Badge } from "../common/Badge";
 import {
   Check,
@@ -17,10 +22,21 @@ import {
   Code2,
   Play,
   RotateCw,
+  RotateCcw,
+  ShieldCheck,
+  ShieldAlert,
+  AlertCircle,
+  CheckCircle2,
+  Activity,
 } from "lucide-react";
 import { useUiStore } from "../../store/useUiStore";
-import { triggerTransformation } from "../../api/transform";
 import { getProjectSourceCode } from "../../api/project";
+import {
+  executeUnifiedMigration,
+  retryVerification,
+  getMigrationContext,
+} from "../../api/orchestrator";
+
 
 interface StepCardProps {
   step: BlueprintStep;
@@ -48,8 +64,11 @@ export const StepCard: React.FC<StepCardProps> = ({
 
   const [transformedRustCode, setTransformedRustCode] = useState<string | null>(null);
   const [isTransforming, setIsTransforming] = useState(false);
+  const [isVerifyingOnly, setIsVerifyingOnly] = useState(false);
   const [transformError, setTransformError] = useState<string | null>(null);
   const [sourceCodeMap, setSourceCodeMap] = useState<Record<string, string>>({});
+  const [migrationContext, setMigrationContext] = useState<MigrationContext | null>(null);
+  const [expandedAgent, setExpandedAgent] = useState<VerificationAgentType | null>(null);
 
   // Enhanced UI state
   const [progress, setProgress] = useState(0);
@@ -61,6 +80,13 @@ export const StepCard: React.FC<StepCardProps> = ({
 
   useEffect(() => {
     setSourceCodeMap(getProjectSourceCode(projectId));
+    const cachedCtx = getMigrationContext(projectId);
+    if (cachedCtx) {
+      setMigrationContext(cachedCtx);
+      if (cachedCtx.generated_rust_source) {
+        setTransformedRustCode(cachedCtx.generated_rust_source);
+      }
+    }
   }, [projectId]);
 
   const codeEntries = Object.entries(sourceCodeMap);
@@ -109,46 +135,52 @@ export const StepCard: React.FC<StepCardProps> = ({
     }
   };
 
-  const handleRunTransformation = async () => {
+  const handleRunTransformation = async (forceRegen: boolean = false) => {
     setIsTransforming(true);
     setTransformError(null);
-    setProgress(12);
-    setProgressStage("Parsing Java AST & deprecated patterns...");
+    setProgress(15);
+    setProgressStage("Initiating primary migration generation...");
     const startTime = Date.now();
 
     if (timerRef.current) clearInterval(timerRef.current);
     timerRef.current = setInterval(() => {
       const elapsed = (Date.now() - startTime) / 1000;
       setElapsedTime(Number(elapsed.toFixed(1)));
-
-      setProgress((prev) => {
-        if (prev < 35) {
-          setProgressStage("Parsing Java AST & deprecated patterns...");
-          return prev + 6;
-        } else if (prev < 70) {
-          setProgressStage("Invoking NVIDIA NIM Engine (Llama 3.2)...");
-          return prev + 4;
-        } else if (prev < 90) {
-          setProgressStage("Synthesizing Idiomatic Rust Axum Router & Structs...");
-          return prev + 2;
-        } else {
-          setProgressStage("Finalizing Transformation Contract...");
-          return Math.min(prev + 0.5, 95);
-        }
-      });
     }, 150);
 
     try {
-      const res = await triggerTransformation(projectId, step.id, step.file_or_module);
+      const context = await executeUnifiedMigration(projectId, rawJavaCode, {
+        fileName: step.file_or_module,
+        forceRegenerate: forceRegen,
+        onProgress: (stage, pct) => {
+          setProgress(pct);
+          setProgressStage(stage);
+        },
+      });
+
       setProgress(100);
-      setProgressStage("Transformation Complete");
-      setTransformedRustCode(res.transformed_code);
-      step.target_pattern = res.transformed_code;
+      setProgressStage("Migration & Automated Verification Complete");
+      setTransformedRustCode(context.generated_rust_source);
+      setMigrationContext(context);
+      step.target_pattern = context.generated_rust_source;
     } catch (err) {
-      setTransformError(err instanceof Error ? err.message : "Transformation failed");
+      setTransformError(err instanceof Error ? err.message : "Unified migration pipeline failed");
     } finally {
       if (timerRef.current) clearInterval(timerRef.current);
       setIsTransforming(false);
+    }
+  };
+
+  const handleRetryVerificationOnly = async () => {
+    setIsVerifyingOnly(true);
+    setTransformError(null);
+    try {
+      const context = await retryVerification(projectId, { fileName: step.file_or_module });
+      setMigrationContext(context);
+    } catch (err) {
+      setTransformError(err instanceof Error ? err.message : "Verification retry failed");
+    } finally {
+      setIsVerifyingOnly(false);
     }
   };
 
@@ -323,8 +355,8 @@ export const StepCard: React.FC<StepCardProps> = ({
 
             <div className="flex items-center gap-2">
               <button
-                onClick={handleRunTransformation}
-                disabled={isTransforming}
+                onClick={() => handleRunTransformation(false)}
+                disabled={isTransforming || isVerifyingOnly}
                 className={`inline-flex items-center space-x-2 px-3.5 py-1.5 rounded text-xs font-bold transition-all shadow-md ${
                   isTransforming
                     ? "bg-amber-500/20 text-amber-400 border border-amber-500/40 cursor-wait"
@@ -336,20 +368,41 @@ export const StepCard: React.FC<StepCardProps> = ({
                 {isTransforming ? (
                   <>
                     <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" />
-                    <span>Transforming Code...</span>
+                    <span>Executing Pipeline...</span>
                   </>
                 ) : displayRustCode ? (
                   <>
                     <RotateCw className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Re-Transform</span>
+                    <span>Re-Run Pipeline</span>
                   </>
                 ) : (
                   <>
                     <Sparkles className="w-3.5 h-3.5 text-black animate-pulse" />
-                    <span>Transform Step</span>
+                    <span>Transform & Verify</span>
                   </>
                 )}
               </button>
+
+              {displayRustCode && (
+                <button
+                  onClick={handleRetryVerificationOnly}
+                  disabled={isVerifyingOnly || isTransforming}
+                  className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded text-xs font-bold bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 border border-zinc-300 dark:border-zinc-700 transition-colors"
+                  title="Retry verification agents on stored artifact without regenerating code"
+                >
+                  {isVerifyingOnly ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-500" />
+                      <span>Re-Verifying...</span>
+                    </>
+                  ) : (
+                    <>
+                      <RotateCcw className="w-3.5 h-3.5 text-amber-500" />
+                      <span>Re-Verify Artifact</span>
+                    </>
+                  )}
+                </button>
+              )}
             </div>
           </div>
 
@@ -381,7 +434,6 @@ export const StepCard: React.FC<StepCardProps> = ({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Left Window: Before Legacy Source */}
             <div className="rounded-lg border border-zinc-800 bg-[#0d1117] overflow-hidden shadow-lg flex flex-col">
-              {/* Terminal Window Chrome */}
               <div className="px-3 py-2 bg-zinc-900/90 border-b border-zinc-800 flex items-center justify-between">
                 <div className="flex items-center space-x-2">
                   <div className="flex items-center space-x-1.5">
@@ -412,7 +464,6 @@ export const StepCard: React.FC<StepCardProps> = ({
                 </div>
               </div>
 
-              {/* Code Body */}
               <div className="p-3 overflow-x-auto max-h-72 min-h-48 flex-1 bg-zinc-950/60">
                 {renderCodeLines(rawJavaCode)}
               </div>
@@ -428,7 +479,6 @@ export const StepCard: React.FC<StepCardProps> = ({
                   : "border-zinc-800 bg-[#0d1117]"
               }`}
             >
-              {/* Terminal Window Chrome */}
               <div className="px-3 py-2 bg-zinc-900/90 border-b border-zinc-800 flex items-center justify-between">
                 <div className="flex items-center space-x-2">
                   <div className="flex items-center space-x-1.5">
@@ -468,7 +518,6 @@ export const StepCard: React.FC<StepCardProps> = ({
                 </div>
               </div>
 
-              {/* Code Body or Shimmering / Placeholder State */}
               <div className="p-3 overflow-x-auto max-h-72 min-h-48 flex-1 bg-zinc-950/60 flex flex-col justify-center">
                 {isTransforming ? (
                   <div className="space-y-2 py-4 px-2">
@@ -499,21 +548,322 @@ export const StepCard: React.FC<StepCardProps> = ({
                         Target Code Not Yet Generated
                       </p>
                       <p className="text-[11px] text-zinc-400 mt-1 max-w-sm mx-auto font-sans">
-                        Click below to execute the live NVIDIA NIM agent and generate production-ready Rust Axum code.
+                        Execute the centralized migration pipeline to generate Rust Axum code and run 5 automated verification agents.
                       </p>
                     </div>
                     <button
-                      onClick={handleRunTransformation}
+                      onClick={() => handleRunTransformation(false)}
                       className="inline-flex items-center space-x-1.5 px-3 py-1 bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold rounded shadow-md transition-all"
                     >
                       <Play className="w-3 h-3 fill-black" />
-                      <span>Run AI Transformation</span>
+                      <span>Run Unified Migration</span>
                     </button>
                   </div>
                 )}
               </div>
             </div>
           </div>
+
+          {/* DOWNSTREAM AUTOMATED VERIFICATION RESULTS */}
+          {migrationContext && migrationContext.verification_results && (
+            <div className="space-y-3 p-4 rounded-lg bg-zinc-100/90 dark:bg-zinc-900/90 border border-zinc-200 dark:border-zinc-800 font-mono">
+              <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-zinc-200 dark:border-zinc-800">
+                <div className="flex items-center space-x-2">
+                  <Activity className="w-4 h-4 text-amber-500" />
+                  <span className="text-xs font-bold text-zinc-900 dark:text-zinc-100">
+                    Automated Verification Pipeline
+                  </span>
+                  <span className="text-[10px] text-zinc-500 dark:text-zinc-400 bg-zinc-200 dark:bg-zinc-800 px-2 py-0.5 rounded">
+                    Artifact: {migrationContext.migration_id.slice(0, 16)}...
+                  </span>
+                </div>
+                <div className="flex items-center space-x-3 text-xs">
+                  <span className="text-zinc-600 dark:text-zinc-400 text-[11px]">
+                    Readiness Score:
+                  </span>
+                  <span className="px-2 py-0.5 rounded font-bold bg-amber-500/10 text-amber-500 border border-amber-500/30">
+                    {migrationContext.readiness_score} / 100
+                  </span>
+                </div>
+              </div>
+
+              {/* 5 Verification Validator Cards Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5 pt-1">
+                {/* 1. Syntax & Compilation */}
+                {(() => {
+                  const res = migrationContext.verification_results.syntax_compilation;
+                  const isPassed = res?.status === "passed";
+                  const isWarn = res?.status === "warning";
+                  return (
+                    <div
+                      onClick={() => setExpandedAgent(expandedAgent === "syntax_compilation" ? null : "syntax_compilation")}
+                      className={`p-2.5 rounded border cursor-pointer transition-all ${
+                        expandedAgent === "syntax_compilation"
+                          ? "ring-1 ring-amber-500 bg-amber-500/5"
+                          : "bg-white dark:bg-zinc-950/70 hover:border-zinc-400 dark:hover:border-zinc-700"
+                      } ${
+                        isPassed
+                          ? "border-emerald-500/30"
+                          : isWarn
+                          ? "border-amber-500/30"
+                          : "border-red-500/40"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[11px] font-bold text-zinc-800 dark:text-zinc-200">
+                          Compilation
+                        </span>
+                        {isPassed ? (
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                        ) : isWarn ? (
+                          <TriangleAlert className="w-3.5 h-3.5 text-amber-500" />
+                        ) : (
+                          <AlertCircle className="w-3.5 h-3.5 text-red-500" />
+                        )}
+                      </div>
+                      <div className="text-[10px] text-zinc-500 dark:text-zinc-400 space-y-0.5 font-sans">
+                        <div>Compilable: {res?.metrics?.compilable ? "Yes" : "No"}</div>
+                        <div>Errors: {res?.metrics?.syntax_errors ?? 0}</div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* 2. Semantic Equivalence */}
+                {(() => {
+                  const res = migrationContext.verification_results.semantic_equivalence;
+                  const isPassed = res?.status === "passed";
+                  const isWarn = res?.status === "warning";
+                  return (
+                    <div
+                      onClick={() => setExpandedAgent(expandedAgent === "semantic_equivalence" ? null : "semantic_equivalence")}
+                      className={`p-2.5 rounded border cursor-pointer transition-all ${
+                        expandedAgent === "semantic_equivalence"
+                          ? "ring-1 ring-amber-500 bg-amber-500/5"
+                          : "bg-white dark:bg-zinc-950/70 hover:border-zinc-400 dark:hover:border-zinc-700"
+                      } ${
+                        isPassed
+                          ? "border-emerald-500/30"
+                          : isWarn
+                          ? "border-amber-500/30"
+                          : "border-red-500/40"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[11px] font-bold text-zinc-800 dark:text-zinc-200">
+                          Semantic Parity
+                        </span>
+                        {isPassed ? (
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                        ) : isWarn ? (
+                          <TriangleAlert className="w-3.5 h-3.5 text-amber-500" />
+                        ) : (
+                          <AlertCircle className="w-3.5 h-3.5 text-red-500" />
+                        )}
+                      </div>
+                      <div className="text-[10px] text-zinc-500 dark:text-zinc-400 space-y-0.5 font-sans">
+                        <div>Score: {res?.metrics?.semantic_parity_score ?? 100}%</div>
+                        <div>Placeholders: {res?.metrics?.placeholder_methods_detected ?? 0}</div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* 3. Architecture & Framework */}
+                {(() => {
+                  const res = migrationContext.verification_results.architecture_framework;
+                  const isPassed = res?.status === "passed";
+                  const isWarn = res?.status === "warning";
+                  return (
+                    <div
+                      onClick={() => setExpandedAgent(expandedAgent === "architecture_framework" ? null : "architecture_framework")}
+                      className={`p-2.5 rounded border cursor-pointer transition-all ${
+                        expandedAgent === "architecture_framework"
+                          ? "ring-1 ring-amber-500 bg-amber-500/5"
+                          : "bg-white dark:bg-zinc-950/70 hover:border-zinc-400 dark:hover:border-zinc-700"
+                      } ${
+                        isPassed
+                          ? "border-emerald-500/30"
+                          : isWarn
+                          ? "border-amber-500/30"
+                          : "border-red-500/40"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[11px] font-bold text-zinc-800 dark:text-zinc-200">
+                          Architecture
+                        </span>
+                        {isPassed ? (
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                        ) : isWarn ? (
+                          <TriangleAlert className="w-3.5 h-3.5 text-amber-500" />
+                        ) : (
+                          <AlertCircle className="w-3.5 h-3.5 text-red-500" />
+                        )}
+                      </div>
+                      <div className="text-[10px] text-zinc-500 dark:text-zinc-400 space-y-0.5 font-sans">
+                        <div>Routes: {res?.metrics?.routes_detected ?? 0}</div>
+                        <div>Serde DTOs: {res?.metrics?.serde_models_count ?? 0}</div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* 4. Security */}
+                {(() => {
+                  const res = migrationContext.verification_results.security;
+                  const isPassed = res?.status === "passed";
+                  const isWarn = res?.status === "warning";
+                  return (
+                    <div
+                      onClick={() => setExpandedAgent(expandedAgent === "security" ? null : "security")}
+                      className={`p-2.5 rounded border cursor-pointer transition-all ${
+                        expandedAgent === "security"
+                          ? "ring-1 ring-amber-500 bg-amber-500/5"
+                          : "bg-white dark:bg-zinc-950/70 hover:border-zinc-400 dark:hover:border-zinc-700"
+                      } ${
+                        isPassed
+                          ? "border-emerald-500/30"
+                          : isWarn
+                          ? "border-amber-500/30"
+                          : "border-red-500/40"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[11px] font-bold text-zinc-800 dark:text-zinc-200">
+                          Security
+                        </span>
+                        {isPassed ? (
+                          <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
+                        ) : isWarn ? (
+                          <ShieldAlert className="w-3.5 h-3.5 text-amber-500" />
+                        ) : (
+                          <ShieldAlert className="w-3.5 h-3.5 text-red-500" />
+                        )}
+                      </div>
+                      <div className="text-[10px] text-zinc-500 dark:text-zinc-400 space-y-0.5 font-sans">
+                        <div>Unsafe blocks: {res?.metrics?.unsafe_blocks_count ?? 0}</div>
+                        <div>SQLi risks: {res?.metrics?.sql_injection_risks ?? 0}</div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* 5. Migration Completeness */}
+                {(() => {
+                  const res = migrationContext.verification_results.migration_completeness;
+                  const isPassed = res?.status === "passed";
+                  const isWarn = res?.status === "warning";
+                  return (
+                    <div
+                      onClick={() => setExpandedAgent(expandedAgent === "migration_completeness" ? null : "migration_completeness")}
+                      className={`p-2.5 rounded border cursor-pointer transition-all ${
+                        expandedAgent === "migration_completeness"
+                          ? "ring-1 ring-amber-500 bg-amber-500/5"
+                          : "bg-white dark:bg-zinc-950/70 hover:border-zinc-400 dark:hover:border-zinc-700"
+                      } ${
+                        isPassed
+                          ? "border-emerald-500/30"
+                          : isWarn
+                          ? "border-amber-500/30"
+                          : "border-red-500/40"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[11px] font-bold text-zinc-800 dark:text-zinc-200">
+                          Completeness
+                        </span>
+                        {isPassed ? (
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                        ) : isWarn ? (
+                          <TriangleAlert className="w-3.5 h-3.5 text-amber-500" />
+                        ) : (
+                          <AlertCircle className="w-3.5 h-3.5 text-red-500" />
+                        )}
+                      </div>
+                      <div className="text-[10px] text-zinc-500 dark:text-zinc-400 space-y-0.5 font-sans">
+                        <div>Parity: {res?.metrics?.completeness_percentage ?? 100}%</div>
+                        <div>TODOs: {res?.metrics?.todo_count ?? 0}</div>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* Expandable Issue Details Panel */}
+              {expandedAgent && (
+                <div className="mt-3 p-3 bg-white dark:bg-zinc-950 rounded border border-zinc-200 dark:border-zinc-800 space-y-2">
+                  <div className="flex items-center justify-between text-xs pb-1.5 border-b border-zinc-200 dark:border-zinc-800">
+                    <span className="font-bold text-zinc-900 dark:text-zinc-100 uppercase text-[10px] tracking-wide">
+                      Issues: {expandedAgent.replace(/_/g, " ")}
+                    </span>
+                    <button
+                      onClick={() => setExpandedAgent(null)}
+                      className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 text-xs"
+                    >
+                      Close
+                    </button>
+                  </div>
+
+                  {(() => {
+                    const agentRes = expandedAgent ? migrationContext.verification_results[expandedAgent] : null;
+                    const issuesList: VerificationIssue[] = agentRes?.issues || [];
+                    if (issuesList.length === 0) {
+                      return (
+                        <div className="text-center py-2 text-xs text-emerald-600 dark:text-emerald-400 font-sans">
+                          ✓ No issues detected for this agent.
+                        </div>
+                      );
+                    }
+                    return (
+                      <div className="space-y-2">
+                        {issuesList.map((issue: VerificationIssue, idx: number) => (
+                          <div
+                            key={idx}
+                            className={`p-2.5 rounded text-xs border ${
+                              issue.severity === "critical"
+                                ? "bg-red-50/50 dark:bg-red-950/20 border-red-200 dark:border-red-900 text-red-700 dark:text-red-300"
+                                : issue.severity === "warning"
+                                ? "bg-amber-50/50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-900 text-amber-700 dark:text-amber-300"
+                                : "bg-blue-50/50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-900 text-blue-700 dark:text-blue-300"
+                            }`}
+                          >
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="font-bold uppercase text-[10px] px-1.5 py-0.5 rounded bg-black/10 dark:bg-white/10">
+                                {issue.severity}
+                              </span>
+                              <span className="text-[10px] opacity-80">
+                                {issue.file}{issue.line ? `:${issue.line}` : ""}
+                              </span>
+                            </div>
+                            <p className="font-semibold text-[11px] mb-0.5">{issue.description}</p>
+                            <p className="text-[10px] opacity-90 font-sans">
+                              <strong>Recommendation:</strong> {issue.recommendation}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+
+              {/* Score Breakdown Explanations */}
+              {migrationContext.readiness_breakdown?.details?.length > 0 && (
+                <div className="pt-2 border-t border-zinc-200 dark:border-zinc-800 text-[10px] text-zinc-500 dark:text-zinc-400 space-y-1 font-sans">
+                  <span className="font-bold text-zinc-700 dark:text-zinc-300 block font-mono">
+                    Consensus Deductions & Evidence:
+                  </span>
+                  {migrationContext.readiness_breakdown.details.map((detail, idx) => (
+                    <div key={idx} className="flex items-start gap-1">
+                      <span className="text-amber-500 font-bold">•</span>
+                      <span>{detail}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {transformError && (
             <div className="p-3 bg-red-500/10 border border-red-500/30 rounded text-xs text-red-400 font-mono flex items-start gap-2">

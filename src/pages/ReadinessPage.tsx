@@ -3,7 +3,9 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { RefreshCcw, CircleCheckBig, HelpCircle, BarChart3, Layers, Scale, MoveRight } from "lucide-react";
 import { getReadinessScore, getConsensusResult, getProjectDetails } from "../api/client";
+import { getMigrationContext } from "../api/orchestrator";
 import { Card } from "../components/common/Card";
+
 import { LoadingSkeleton } from "../components/common/LoadingSkeleton";
 import { ErrorState } from "../components/common/ErrorState";
 
@@ -159,6 +161,94 @@ export const ReadinessPage: React.FC = () => {
           </span>
         </div>
       )}
+
+      {/* Downstream Automated Verification Pipeline Card (if unified migration has executed) */}
+      {(() => {
+        const migCtx = id ? getMigrationContext(id) : null;
+        if (!migCtx || !migCtx.verification_results) return null;
+        const res = migCtx.verification_results;
+
+        return (
+          <Card
+            title={
+              <div className="flex items-center space-x-2">
+                <BarChart3 className="w-3.5 h-3.5 text-zinc-700 dark:text-zinc-300" />
+                <span>Automated Verification Pipeline Evidence</span>
+              </div>
+            }
+            subtitle={`Downstream agent validation for generated Rust artifact (ID: ${migCtx.migration_id.slice(0, 16)}...)`}
+          >
+            <div className="space-y-4 font-mono">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+                <div className="p-3 rounded bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800">
+                  <div className="text-[10px] text-zinc-400 uppercase font-bold">1. Compilation</div>
+                  <div className="text-sm font-bold mt-1 text-zinc-900 dark:text-zinc-100 uppercase">
+                    {res.syntax_compilation?.status || "PENDING"}
+                  </div>
+                  <div className="text-[10px] text-zinc-500 mt-1 font-sans">
+                    Compilable: {res.syntax_compilation?.metrics?.compilable ? "Yes" : "No"}
+                  </div>
+                </div>
+
+                <div className="p-3 rounded bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800">
+                  <div className="text-[10px] text-zinc-400 uppercase font-bold">2. Semantic Logic</div>
+                  <div className="text-sm font-bold mt-1 text-zinc-900 dark:text-zinc-100 uppercase">
+                    {res.semantic_equivalence?.status || "PENDING"}
+                  </div>
+                  <div className="text-[10px] text-zinc-500 mt-1 font-sans">
+                    Parity: {res.semantic_equivalence?.metrics?.semantic_parity_score ?? 100}%
+                  </div>
+                </div>
+
+                <div className="p-3 rounded bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800">
+                  <div className="text-[10px] text-zinc-400 uppercase font-bold">3. Architecture</div>
+                  <div className="text-sm font-bold mt-1 text-zinc-900 dark:text-zinc-100 uppercase">
+                    {res.architecture_framework?.status || "PENDING"}
+                  </div>
+                  <div className="text-[10px] text-zinc-500 mt-1 font-sans">
+                    Routes: {res.architecture_framework?.metrics?.routes_detected ?? 0}
+                  </div>
+                </div>
+
+                <div className="p-3 rounded bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800">
+                  <div className="text-[10px] text-zinc-400 uppercase font-bold">4. Security</div>
+                  <div className="text-sm font-bold mt-1 text-zinc-900 dark:text-zinc-100 uppercase">
+                    {res.security?.status || "PENDING"}
+                  </div>
+                  <div className="text-[10px] text-zinc-500 mt-1 font-sans">
+                    Unsafe: {res.security?.metrics?.unsafe_blocks_count ?? 0}
+                  </div>
+                </div>
+
+                <div className="p-3 rounded bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800">
+                  <div className="text-[10px] text-zinc-400 uppercase font-bold">5. Completeness</div>
+                  <div className="text-sm font-bold mt-1 text-zinc-900 dark:text-zinc-100 uppercase">
+                    {res.migration_completeness?.status || "PENDING"}
+                  </div>
+                  <div className="text-[10px] text-zinc-500 mt-1 font-sans">
+                    Coverage: {res.migration_completeness?.metrics?.completeness_percentage ?? 100}%
+                  </div>
+                </div>
+              </div>
+
+              {migCtx.readiness_breakdown?.details?.length > 0 && (
+                <div className="p-3 rounded bg-amber-500/5 border border-amber-500/20 text-xs space-y-1 font-sans">
+                  <span className="font-bold text-zinc-800 dark:text-zinc-200 font-mono block">
+                    Verification Deductions & Findings:
+                  </span>
+                  {migCtx.readiness_breakdown.details.map((detail, idx) => (
+                    <div key={idx} className="flex items-start gap-1.5 text-zinc-600 dark:text-zinc-300">
+                      <span className="text-amber-500 font-bold">•</span>
+                      <span>{detail}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </Card>
+        );
+      })()}
+
 
       {/* 7 Weighted Dimensions */}
       <Card

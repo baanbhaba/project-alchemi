@@ -241,3 +241,104 @@ export type ValidationResult = z.infer<typeof ValidationResultSchema>;
 export type MigrationReportEntry = z.infer<typeof MigrationReportEntrySchema>;
 export type MigrationReport = z.infer<typeof MigrationReportSchema>;
 export type ProjectSummary = z.infer<typeof ProjectSummarySchema>;
+
+// --- Unified Migration & Verification Schemas ---
+
+export const VerificationAgentTypeSchema = z.enum([
+  "syntax_compilation",
+  "semantic_equivalence",
+  "architecture_framework",
+  "security",
+  "migration_completeness",
+]);
+
+export const VerificationSeveritySchema = z.enum(["critical", "warning", "info"]);
+
+export const VerificationStatusSchema = z.enum(["passed", "failed", "warning", "error"]);
+
+export const VerificationIssueSchema = z.object({
+  severity: VerificationSeveritySchema,
+  file: z.string(),
+  line: z.number().optional(),
+  category: z.string(),
+  description: z.string(),
+  recommendation: z.string(),
+});
+
+export const VerificationResultSchema = z.object({
+  agent: VerificationAgentTypeSchema,
+  status: VerificationStatusSchema,
+  confidence: z.number().min(0).max(1),
+  issues: z.array(VerificationIssueSchema),
+  metrics: z.record(z.string(), z.union([z.number(), z.string(), z.boolean()])),
+  execution_time_ms: z.number().optional(),
+});
+
+export const VerificationReadinessBreakdownSchema = z.object({
+  compilation: z.number(),
+  semantic_equivalence: z.number(),
+  completeness: z.number(),
+  architecture: z.number(),
+  security: z.number(),
+  critical_penalty: z.number(),
+  details: z.array(z.string()),
+});
+
+export const MigrationStatusSchema = z.enum([
+  "pending",
+  "generating",
+  "generated",
+  "verifying",
+  "completed",
+  "failed",
+]);
+
+export const MigrationContextSchema = z.object({
+  migration_id: z.string(),
+  project_id: z.string(),
+  original_java_source: z.string(),
+  generated_rust_source: z.string(),
+  migration_timestamp: z.string(),
+  source_file_mapping: z.record(z.string(), z.string()),
+  detected_framework: z.string(),
+  target_framework: z.string(),
+  migration_status: MigrationStatusSchema,
+  verification_results: z.record(VerificationAgentTypeSchema, VerificationResultSchema),
+  readiness_score: z.number().min(0).max(100),
+  readiness_breakdown: VerificationReadinessBreakdownSchema,
+  generation_call_count: z.number().default(1),
+  error: z.string().optional(),
+});
+
+export type VerificationAgentType = z.infer<typeof VerificationAgentTypeSchema>;
+export type VerificationSeverity = z.infer<typeof VerificationSeveritySchema>;
+export type VerificationStatus = z.infer<typeof VerificationStatusSchema>;
+export type VerificationIssue = z.infer<typeof VerificationIssueSchema>;
+export type VerificationResult = {
+  agent: VerificationAgentType;
+  status: VerificationStatus;
+  confidence: number;
+  issues: VerificationIssue[];
+  metrics: Record<string, number | string | boolean>;
+  execution_time_ms?: number;
+};
+export type VerificationReadinessBreakdown = z.infer<typeof VerificationReadinessBreakdownSchema>;
+export type MigrationStatus = z.infer<typeof MigrationStatusSchema>;
+export type MigrationContext = {
+  migration_id: string;
+  project_id: string;
+  original_java_source: string;
+  generated_rust_source: string;
+  migration_timestamp: string;
+  source_file_mapping: Record<string, string>;
+  detected_framework: string;
+  target_framework: string;
+  migration_status: MigrationStatus;
+  verification_results: Record<VerificationAgentType, VerificationResult>;
+  readiness_score: number;
+  readiness_breakdown: VerificationReadinessBreakdown;
+  generation_call_count: number;
+  error?: string;
+};
+
+
